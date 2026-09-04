@@ -1144,4 +1144,4 @@ try {
 } catch (error) {
   console.warn(`Kafka is unavailable; using direct MongoDB persistence. ${error.message}`);
 }
-app.listen(PORT,()=>console.log(`MediSphere backend running on http://localhost:${PORT}`));
+app.listen(PORT,()=>console.log(`MediSphere backend is running on http://localhost:${PORT}`));
