@@ -1,5 +1,6 @@
 const NAV_ITEMS = [
   { key: "dashboard", label: "Dashboard", providerOnly: false },
+  { key: "pipeline", label: "Data Pipeline", providerOnly: true },
   { key: "patients", label: "Patients", providerOnly: true },
   { key: "twin", label: "Digital Twin", providerOnly: false },
   { key: "validation", label: "Validation", providerOnly: false },

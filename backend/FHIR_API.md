@@ -9,14 +9,18 @@ Base URL:
 FHIR version: R4 / 4.0.1
 
 ## Endpoints
+ 
+ - `GET /metadata` — CapabilityStatement
+ - `GET /Patient/:id` — Patient resource (supports JSON and XML via `?_format=xml`)
+ - `GET /Patient?identifier=...` — Patient Bundle search
+ - `GET /Observation?patient=:id` — Observation Bundle
+ - `GET /Condition?patient=:id` — Condition Bundle
+ - `GET /MedicationRequest?patient=:id` — MedicationRequest Bundle
+ - `GET /DiagnosticReport?patient=:id` — DiagnosticReport Bundle
+ - `POST /fhir/R4/$validate` — Standard HL7 FHIR R4 resource validation (returns `OperationOutcome`)
+ - `POST /fhir/R4/:resourceType` — Ingest Observation / DiagnosticReport resources
 
-- `GET /metadata`
-- `GET /Patient/P001`
-- `GET /Patient?identifier=...`
-- `GET /Observation?patient=P001`
-- `GET /Condition?patient=P001`
-- `GET /MedicationRequest?patient=P001`
-- `GET /DiagnosticReport?patient=P001`
+Powered natively in Node.js by the official **`fhir`** npm engine (HL7 FHIR R4 schema specification). Zero Java required.
 
 The application integration endpoint:
 

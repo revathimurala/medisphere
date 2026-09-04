@@ -9,15 +9,24 @@ import { Kafka } from "kafkajs";
 import xlsx from "xlsx";
 import path from "path";
 import { fileURLToPath } from "url";
+import { Fhir } from "fhir";
+
+const fhirEngine = new Fhir();
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 const PORT = Number(process.env.PORT || 4000);
 const mongoUri = process.env.MONGO_URI || "mongodb://localhost:27017/medisphere";
 const topic = process.env.KAFKA_TOPIC || "patient-health-data";
-const kafka = new Kafka({ clientId: "medisphere", brokers: (process.env.KAFKA_BROKERS || "localhost:9092").split(",") });
+const kafka = new Kafka({
+  clientId: "medisphere",
+  brokers: (process.env.KAFKA_BROKERS || "localhost:9092").split(","),
+  retry: { initialRetryTime: 300, retries: 2 },
+  connectionTimeout: 2000
+});
 const producer = kafka.producer();
 const consumer = kafka.consumer({ groupId: "medisphere-twin-consumer" });
 let kafkaReady = false;
@@ -162,7 +171,8 @@ function validateFhirResource(resource) {
   if (["Observation","DiagnosticReport","Condition","MedicationRequest"].includes(resource.resourceType) &&
       !resource.subject?.reference) return false;
   if (resource.resourceType === "Observation" && !resource.code) return false;
-  return true;
+  const validation = fhirEngine.validate(resource);
+  return validation.valid;
 }
 
 function extractQuantity(o) {
@@ -197,6 +207,36 @@ async function rebuildTwin(patientId) {
   const labs = obsResources
     .filter(r => r.resource?.category?.[0]?.coding?.[0]?.code === "laboratory")
     .map(r=>mapObservation(r.resource));
+  const condResources = resources.filter(r => r.resourceType === "Condition");
+  const medResources = resources.filter(r => r.resourceType === "MedicationRequest");
+
+  // Deduplicate conditions by clinical text and clean up duplicate DB resources
+  const seenConds = new Set();
+  const conditions = [];
+  for (const r of condResources) {
+    const text = (r.resource?.code?.text || r.resource?.code?.coding?.[0]?.display || "").trim();
+    const key = text.toLowerCase();
+    if (text && !seenConds.has(key)) {
+      seenConds.add(key);
+      conditions.push(r.resource);
+    } else if (seenConds.has(key) && r._id) {
+      FHIRResource.deleteOne({ _id: r._id }).catch(() => {});
+    }
+  }
+
+  // Deduplicate medications by clinical text and clean up duplicate DB resources
+  const seenMeds = new Set();
+  const medications = [];
+  for (const r of medResources) {
+    const text = (r.resource?.medicationCodeableConcept?.text || r.resource?.medicationCodeableConcept?.coding?.[0]?.display || "").trim();
+    const key = text.toLowerCase();
+    if (text && !seenMeds.has(key)) {
+      seenMeds.add(key);
+      medications.push(r.resource);
+    } else if (seenMeds.has(key) && r._id) {
+      FHIRResource.deleteOne({ _id: r._id }).catch(() => {});
+    }
+  }
   const consent = await Consent.findOne({patientId,status:"granted"});
   const fhirInvalid = resources.some(r => r.valid === false);
   const latestVitals = wearableVitals.length ? wearableVitals[wearableVitals.length-1] : null;
@@ -204,7 +244,7 @@ async function rebuildTwin(patientId) {
   return HealthTwin.findOneAndUpdate({patientId},{
     patientId,
     demographics:{name:patientName(patient?.resource),gender:patient?.resource?.gender,dob:patient?.resource?.birthDate},
-    conditions:[], medications:[], observations:obs, wearableVitals, latestVitals, labResults:labs,
+    conditions, medications, observations:obs, wearableVitals, latestVitals, labResults:labs,
     completeness, fhirStatus:fhirInvalid ? "Invalid" : (patient ? "Valid" : "Missing"),
     consentStatus:consent ? "Granted" : "Not Granted",
     lastUpdated:new Date()
@@ -248,6 +288,15 @@ const localFhir = {
       name:[{use:"official",family:"Kumar",given:["David"]}],
       gender:"male", birthDate:"1968-02-10",
       telecom:[{system:"phone",value:"9000000003"}]
+    },
+    "P004": {
+      resourceType: "Patient", id: "P004",
+      meta: { profile: ["http://hl7.org/fhir/StructureDefinition/Patient"] },
+      identifier: [{ system: "https://medisphere.local/mrn", value: "MRN-P004" }],
+      active: true,
+      name: [{ use: "official", family: "Taylor", given: ["Robert"] }],
+      gender: "male", birthDate: "1992-11-04",
+      telecom: [{ system: "phone", value: "9000000004" }]
     }
   },
   Observation: [
@@ -388,6 +437,10 @@ app.get("/.well-known/smart-configuration",(req,res)=>res.json({
 app.get("/fhir/R4/:resourceType/:id",requireFhirBearer(false),(req,res)=>{
   const resource=localFhirResource(req.params.resourceType,req.params.id);
   if(!resource) return res.status(404).type("application/fhir+json").json({resourceType:"OperationOutcome",issue:[{severity:"error",code:"not-found",diagnostics:"Resource not found"}]});
+  const accept = req.headers.accept || "";
+  if (accept.includes("xml") || req.query._format === "xml") {
+    return res.type("application/fhir+xml").send(fhirEngine.objToXml(resource));
+  }
   res.type("application/fhir+json").json(resource);
 });
 
@@ -396,6 +449,36 @@ app.get("/fhir/R4/:resourceType",requireFhirBearer(false),(req,res)=>{
   if(!allowed.includes(req.params.resourceType)) return res.status(404).json({message:"FHIR resource type not implemented in Milestone 1"});
   const patientId=req.query.patient || req.query.subject?.replace(/^Patient\//,"");
   res.type("application/fhir+json").json(fhirBundle(localFhirSearch(req.params.resourceType,patientId),req.params.resourceType));
+});
+
+// Standard HL7 FHIR R4 $validate operation powered by npm fhir engine
+app.post("/fhir/R4/\\$validate",(req,res)=>{
+  const resource = req.body;
+  if (!resource || typeof resource !== "object" || !resource.resourceType) {
+    return res.status(400).type("application/fhir+json").json({
+      resourceType: "OperationOutcome",
+      issue: [{ severity: "error", code: "invalid", diagnostics: "A valid FHIR resource body is required" }]
+    });
+  }
+  const result = fhirEngine.validate(resource);
+  const issues = (result.messages || []).map(m => ({
+    severity: m.severity || "error",
+    code: m.severity === "error" ? "invalid" : "informational",
+    location: [m.location],
+    diagnostics: m.message
+  }));
+  if (result.valid) {
+    issues.unshift({
+      severity: "information",
+      code: "informational",
+      diagnostics: `Official HL7 FHIR R4 schema validation passed for ${resource.resourceType}/${resource.id || "new"}.`
+    });
+  }
+  res.type("application/fhir+json").json({
+    resourceType: "OperationOutcome",
+    id: `outcome-${Date.now()}`,
+    issue: issues
+  });
 });
 
 // FHIR write endpoint used by the collection pipeline.
@@ -440,8 +523,9 @@ function requireFhirBearer(write=false) {
     try {
       const claims=jwt.verify(token,process.env.JWT_SECRET||"change-me-in-production");
       const scope=String(claims.scope||"");
-      if(write && !/user\/\*\.write/.test(scope)) throw new Error("write scope required");
-      if(!write && !(/user\/\*\.read/.test(scope)||/user\/\*\.write/.test(scope))) throw new Error("read scope required");
+      const isProvider = ["admin", "provider"].includes(claims.role);
+      if(write && !isProvider && !/user\/\*\.write/.test(scope)) throw new Error("write scope required");
+      if(!write && !isProvider && !(/user\/\*\.read/.test(scope)||/user\/\*\.write/.test(scope))) throw new Error("read scope required");
       req.fhirUser=claims; next();
     } catch {
       return res.status(403).type("application/fhir+json").json({resourceType:"OperationOutcome",issue:[{severity:"error",code:"forbidden",diagnostics:"Invalid SMART on FHIR token or scope"}]});
@@ -537,49 +621,262 @@ app.post("/api/collect/laboratory",auth,async(req,res)=>{
   } catch(e) { res.status(502).json({message:"FHIR/Kafka pipeline failed",detail:e.response?.data || e.message}); }
 });
 
+async function processExcelWorkbook(wb, actor = "system") {
+  const findSheet = (names) => {
+    for (const n of names) {
+      if (wb.Sheets[n]) return wb.Sheets[n];
+    }
+    const lowerNames = names.map(x => x.toLowerCase());
+    for (const key of wb.SheetNames) {
+      if (lowerNames.includes(key.toLowerCase())) return wb.Sheets[key];
+    }
+    return null;
+  };
+
+  const rows = (names) => {
+    const sheet = findSheet(Array.isArray(names) ? names : [names]);
+    if (!sheet) return [];
+    return xlsx.utils.sheet_to_json(sheet, { defval: null });
+  };
+
+  const patientRows = rows(["Patients", "Patient", "Demographics"]);
+  const consentRows = rows(["Consents", "Consent"]);
+  const conditionRows = rows(["Conditions", "Condition"]);
+  const medRows = rows(["Medications", "MedicationRequests", "Medication"]);
+  const wearableRows = rows(["WearableVitals", "Wearables", "Vitals"]);
+  const labRows = rows(["LabResults", "Labs", "LaboratoryReports"]);
+
+  const affectedPatientIds = new Set();
+  let queued = 0;
+
+  // 1. Process explicit Patients sheet
+  for (const p of patientRows) {
+    if (!p.patientId && !p.id) continue;
+    const pid = String(p.patientId || p.id).trim();
+    affectedPatientIds.add(pid);
+    const family = p.familyName || p.family || p.lastName || "";
+    const given = p.givenName || p.given || p.firstName || "";
+    const resource = {
+      resourceType: "Patient",
+      id: pid,
+      meta: { profile: ["http://hl7.org/fhir/StructureDefinition/Patient"] },
+      identifier: [{ system: "https://medisphere.local/mrn", value: p.mrn || `MRN-${pid}` }],
+      active: true,
+      name: [{ use: "official", family, given: [given].filter(Boolean) }],
+      gender: p.gender || "unknown",
+      birthDate: p.birthDate ? String(p.birthDate).slice(0, 10) : "1980-01-01",
+      telecom: p.phone ? [{ system: "phone", value: String(p.phone) }] : []
+    };
+    localFhir.Patient[pid] = resource;
+    await publishFhirToKafka(resource, "FHIR_PATIENT", actor);
+    queued++;
+  }
+
+  // Collect patient IDs mentioned across all other sheets
+  for (const r of [...wearableRows, ...labRows, ...conditionRows, ...medRows, ...consentRows]) {
+    const pid = r.patientId || r.patient || r.id;
+    if (pid) affectedPatientIds.add(String(pid).trim());
+  }
+
+  // Ensure every patient exists in local registry and database
+  for (const pid of affectedPatientIds) {
+    if (!localFhir.Patient[pid]) {
+      const existing = await Patient.findOne({ fhirId: pid });
+      if (existing?.resource) {
+        localFhir.Patient[pid] = existing.resource;
+      } else {
+        const fallback = {
+          resourceType: "Patient",
+          id: pid,
+          meta: { profile: ["http://hl7.org/fhir/StructureDefinition/Patient"] },
+          identifier: [{ system: "https://medisphere.local/mrn", value: `MRN-${pid}` }],
+          active: true,
+          name: [{ use: "official", family: pid, given: ["Patient"] }],
+          gender: "unknown",
+          birthDate: "1980-01-01"
+        };
+        localFhir.Patient[pid] = fallback;
+        await publishFhirToKafka(fallback, "FHIR_PATIENT", actor);
+        queued++;
+      }
+    }
+  }
+
+  // 2. Process Consents
+  for (const c of consentRows) {
+    const pid = c.patientId || c.patient || c.id;
+    if (!pid) continue;
+    const cleanId = String(pid).trim();
+    await Consent.findOneAndUpdate(
+      { patientId: cleanId },
+      {
+        patientId: cleanId,
+        providerId: c.providerId || actor,
+        purpose: c.purpose || "milestone1-demo",
+        status: c.status || "granted",
+        updatedAt: new Date()
+      },
+      { upsert: true }
+    );
+  }
+
+  // Ensure default consent for any patient who doesn't have one
+  for (const pid of affectedPatientIds) {
+    const existing = await Consent.findOne({ patientId: pid });
+    if (!existing) {
+      await Consent.create({
+        patientId: pid,
+        providerId: actor,
+        purpose: "milestone1-demo",
+        status: "granted"
+      });
+    }
+  }
+
+  // 3. Process Conditions
+  for (const c of conditionRows) {
+    const pid = c.patientId || c.patient;
+    if (!pid || (!c.condition && !c.code)) continue;
+    const cleanId = String(pid).trim();
+    const condText = c.condition || c.code;
+    const slug = String(condText).toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 32);
+    const resource = {
+      resourceType: "Condition",
+      id: `cond-${cleanId}-${slug}`,
+      clinicalStatus: { coding: [{ code: c.clinicalStatus || "active" }] },
+      subject: { reference: `Patient/${cleanId}` },
+      code: { text: condText }
+    };
+    await publishFhirToKafka(resource, "FHIR_CONDITION", actor);
+    queued++;
+  }
+
+  // 4. Process Medications
+  for (const m of medRows) {
+    const pid = m.patientId || m.patient;
+    if (!pid || (!m.medication && !m.drug && !m.name)) continue;
+    const cleanId = String(pid).trim();
+    const medText = m.medication || m.drug || m.name;
+    const slug = String(medText).toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 32);
+    const resource = {
+      resourceType: "MedicationRequest",
+      id: `med-${cleanId}-${slug}`,
+      status: m.status || "active",
+      intent: "order",
+      subject: { reference: `Patient/${cleanId}` },
+      medicationCodeableConcept: { text: m.dosage ? `${medText} (${m.dosage})` : medText }
+    };
+    await publishFhirToKafka(resource, "FHIR_MEDICATION", actor);
+    queued++;
+  }
+
+  // 5. Process Wearable Vitals
+  for (const r of wearableRows) {
+    const pid = r.patientId || r.patient;
+    if (!pid) continue;
+    const cleanId = String(pid).trim();
+    const v = {
+      patientId: cleanId,
+      timestamp: r.timestamp || new Date().toISOString(),
+      heartRate: Number(r.heartRate),
+      systolic: Number(r.systolic),
+      diastolic: Number(r.diastolic),
+      spo2: Number(r.spo2),
+      temperature: Number(r.temperature)
+    };
+    if (!validateVitals(v)) continue;
+    const resource = {
+      resourceType: "Observation",
+      id: `wear-${cleanId}-${Date.now()}-${queued}`,
+      status: "final",
+      subject: { reference: `Patient/${cleanId}` },
+      category: [{ coding: [{ system: "http://terminology.hl7.org/CodeSystem/observation-category", code: "vital-signs" }] }],
+      code: { coding: [{ system: "http://loinc.org", code: "8867-4", display: "Wearable vital signs" }], text: "Wearable vital signs" },
+      valueString: JSON.stringify(v),
+      effectiveDateTime: v.timestamp,
+      extension: [{ url: "https://medisphere.local/fhir/StructureDefinition/wearable-vitals", valueString: JSON.stringify(v) }]
+    };
+    await collectToFhirThenKafka(resource, actor);
+    queued++;
+  }
+
+  // 6. Process Lab Results
+  for (const r of labRows) {
+    const pid = r.patientId || r.patient;
+    if (!pid || !r.test || r.value === null || r.value === undefined || Number.isNaN(Number(r.value))) continue;
+    const cleanId = String(pid).trim();
+    const resource = {
+      resourceType: "Observation",
+      id: `lab-${cleanId}-${Date.now()}-${queued}`,
+      status: "final",
+      subject: { reference: `Patient/${cleanId}` },
+      category: [{ coding: [{ system: "http://terminology.hl7.org/CodeSystem/observation-category", code: "laboratory" }] }],
+      code: { text: r.test, coding: [{ system: "http://loinc.org", code: "unknown", display: r.test }] },
+      valueQuantity: { value: Number(r.value), unit: r.unit || "" },
+      effectiveDateTime: r.date || new Date().toISOString()
+    };
+    await collectToFhirThenKafka(resource, actor);
+    queued++;
+  }
+
+  // Rebuild twin for all affected patients
+  for (const pid of affectedPatientIds) {
+    await rebuildTwin(pid);
+  }
+
+  await audit(actor, "provider", "EXCEL_COLLECTION_PIPELINE", null, "SUCCESS", {
+    patients: patientRows.length,
+    wearables: wearableRows.length,
+    labs: labRows.length,
+    conditions: conditionRows.length,
+    medications: medRows.length,
+    consents: consentRows.length,
+    queued
+  });
+
+  return {
+    pipeline: ["1. COLLECT DATA", "2. FHIR R4 API", "3. KAFKA", "4. MONGODB", "5. DIGITAL HEALTH TWIN"],
+    patients: patientRows.length || affectedPatientIds.size,
+    wearables: wearableRows.length,
+    laboratoryReports: labRows.length,
+    conditions: conditionRows.length,
+    medications: medRows.length,
+    consents: consentRows.length,
+    queued,
+    patientIds: Array.from(affectedPatientIds)
+  };
+}
+
 app.post("/api/demo/collect-excel",auth,roleGuard("admin","provider"),async(req,res)=>{
   try {
-    const file=path.resolve(__dirname,"../../data/medisphere_milestone1_demo.xlsx");
-    const wb=xlsx.readFile(file);
-    const rows=name=>xlsx.utils.sheet_to_json(wb.Sheets[name],{defval:null});
-    const wearableRows=rows("WearableVitals");
-    const labRows=rows("LabResults");
-    const patientIds=[...new Set([...wearableRows.map(r=>r.patientId),...labRows.map(r=>r.patientId)].filter(Boolean))];
-    let queued=0;
+    const file = path.resolve(__dirname, "../../data/medisphere_milestone1_demo.xlsx");
+    const wb = xlsx.readFile(file);
+    const result = await processExcelWorkbook(wb, req.user.sub);
+    res.json(result);
+  } catch(e) {
+    res.status(502).json({message:"Demo collection failed",detail:e.response?.data || e.message});
+  }
+});
 
-    // Patient identity is supplied by the local FHIR Patient registry; it is not taken from Excel.
-    // This lets the demo use the same FHIR API boundary as a real client.
-    for (const patientId of patientIds) {
-      const patient=await fhirGet(`/Patient/${encodeURIComponent(patientId)}`);
-      await publishFhirToKafka(patient,"FHIR_PATIENT",req.user.sub);
-      const existing=await Consent.findOne({patientId});
-      if(!existing) await Consent.create({patientId,providerId:req.user.sub,purpose:"milestone1-demo",status:"granted"});
+app.post("/api/demo/upload-excel",auth,roleGuard("admin","provider"),async(req,res)=>{
+  try {
+    const { fileBase64, filename } = req.body || {};
+    if (!fileBase64) {
+      return res.status(400).json({ message: "No file provided. Please provide an Excel file (.xlsx)." });
     }
+    const cleanBase64 = fileBase64.replace(/^data:application\/[^;]+;base64,/, "").replace(/^data:.*\/.*;base64,/, "");
+    const buffer = Buffer.from(cleanBase64, "base64");
+    const wb = xlsx.read(buffer, { type: "buffer" });
+    const result = await processExcelWorkbook(wb, req.user.sub);
+    res.json({ ...result, filename: filename || "uploaded.xlsx" });
+  } catch(e) {
+    res.status(502).json({ message: "Failed to process uploaded Excel workbook", detail: e.message });
+  }
+});
 
-    for(const r of wearableRows){
-      const v={patientId:r.patientId,timestamp:r.timestamp,heartRate:Number(r.heartRate),systolic:Number(r.systolic),diastolic:Number(r.diastolic),spo2:Number(r.spo2),temperature:Number(r.temperature)};
-      if(!v.patientId || !validateVitals(v)) continue;
-      const resource={resourceType:"Observation",id:`wear-${v.patientId}-${Date.now()}-${queued}`,status:"final",
-        subject:{reference:`Patient/${v.patientId}`},
-        category:[{coding:[{system:"http://terminology.hl7.org/CodeSystem/observation-category",code:"vital-signs"}]}],
-        code:{coding:[{system:"http://loinc.org",code:"8867-4",display:"Wearable vital signs"}],text:"Wearable vital signs"},
-        valueString:JSON.stringify(v),effectiveDateTime:v.timestamp,
-        extension:[{url:"https://medisphere.local/fhir/StructureDefinition/wearable-vitals",valueString:JSON.stringify(v)}]};
-      await collectToFhirThenKafka(resource,req.user.sub); queued++;
-    }
-
-    for(const r of labRows){
-      if(!r.patientId || !r.test || r.value===null || r.value===undefined || Number.isNaN(Number(r.value))) continue;
-      const resource={resourceType:"Observation",id:`lab-${r.patientId}-${Date.now()}-${queued}`,status:"final",
-        subject:{reference:`Patient/${r.patientId}`},
-        category:[{coding:[{system:"http://terminology.hl7.org/CodeSystem/observation-category",code:"laboratory"}]}],
-        code:{text:r.test,coding:[{system:"http://loinc.org",code:"unknown",display:r.test}]},
-        valueQuantity:{value:Number(r.value),unit:r.unit||""},effectiveDateTime:r.date || new Date().toISOString()};
-      await collectToFhirThenKafka(resource,req.user.sub); queued++;
-    }
-    await audit(req.user.sub,req.user.role,"EXCEL_COLLECTION_PIPELINE",null,"SUCCESS",{wearables:wearableRows.length,labs:labRows.length,queued});
-    res.json({pipeline:["1. COLLECT DATA","2. FHIR R4 API","3. KAFKA","4. MONGODB","5. DIGITAL HEALTH TWIN"],wearables:wearableRows.length,laboratoryReports:labRows.length,queued});
-  } catch(e) { res.status(502).json({message:"Demo collection failed",detail:e.response?.data || e.message}); }
+app.get("/api/demo/download-template",auth,(req,res)=>{
+  const file = path.resolve(__dirname, "../../data/medisphere_milestone1_demo.xlsx");
+  res.download(file, "medisphere_milestone1_template.xlsx");
 });
 
 app.post("/api/fhir/sync/:patientId",auth,roleGuard("admin","provider"),async(req,res)=>{
@@ -601,10 +898,24 @@ app.post("/api/fhir/sync/:patientId",auth,roleGuard("admin","provider"),async(re
 
 app.get("/api/patients",auth,roleGuard("admin","provider"),async(req,res)=>{
   const twins = await HealthTwin.find().sort({lastUpdated:-1}).limit(100);
-  const twinById=new Map(twins.map(t=>[t.patientId,t]));
-  const patients=Object.values(localFhir.Patient).map(p=>({
-    id:p.id, name:patientName(p), gender:p.gender, birthDate:p.birthDate,
-    twinReady:twinById.has(p.id), completeness:twinById.get(p.id)?.completeness ?? 0
+  const twinById = new Map(twins.map(t=>[t.patientId,t]));
+  const dbPatients = await Patient.find();
+  const allPatientsMap = new Map();
+  for (const p of Object.values(localFhir.Patient)) {
+    if (p && p.id) allPatientsMap.set(p.id, p);
+  }
+  for (const p of dbPatients) {
+    if (p.fhirId && p.resource) {
+      allPatientsMap.set(p.fhirId, p.resource);
+    }
+  }
+  const patients = Array.from(allPatientsMap.values()).map(p=>({
+    id: p.id,
+    name: patientName(p),
+    gender: p.gender,
+    birthDate: p.birthDate,
+    twinReady: twinById.has(p.id),
+    completeness: twinById.get(p.id)?.completeness ?? 0
   }));
   res.json(patients);
 });
@@ -623,6 +934,139 @@ app.get("/api/twins/:patientId",auth,async(req,res)=>{
   await audit(req.user.sub,req.user.role,"VIEW_TWIN",req.params.patientId,"SUCCESS");
   const patient=await Patient.findOne({fhirId:req.params.patientId});
   res.json({...twin.toObject(),patient:patient?.resource || null});
+});
+
+app.get("/api/twins/:patientId/timeline",auth,async(req,res)=>{
+  const patientId=req.params.patientId;
+  if(req.user.role==="patient" && req.user.sub!==patientId) return res.status(403).json({message:"RBAC denied"});
+  const resources=await FHIRResource.find({patientId}).sort({receivedAt:1});
+  const timeline=[];
+
+  for (const r of resources) {
+    if (r.resourceType === "Observation") {
+      const isWearable = r.resource?.extension?.some(e => e.url?.includes("wearable-vitals"));
+      if (isWearable) {
+        try {
+          const v = JSON.parse(r.resource.extension.find(e => e.url?.includes("wearable-vitals"))?.valueString || "{}");
+          timeline.push({
+            type: "vitals",
+            timestamp: v.timestamp || r.receivedAt,
+            label: `Wearable Vital Stream`,
+            detail: `HR ${v.heartRate} bpm · BP ${v.systolic}/${v.diastolic} mmHg · SpO₂ ${v.spo2}% · ${v.temperature || 36.6}°C`,
+            data: v
+          });
+        } catch {}
+      } else {
+        const val = r.resource?.valueQuantity?.value;
+        const unit = r.resource?.valueQuantity?.unit || "";
+        const codeText = r.resource?.code?.text || "Laboratory Observation";
+        timeline.push({
+          type: "lab",
+          timestamp: r.resource?.effectiveDateTime || r.receivedAt,
+          label: `Lab Result: ${codeText}`,
+          detail: `${val} ${unit}`,
+          data: { test: codeText, value: val, unit }
+        });
+      }
+    } else if (r.resourceType === "Condition") {
+      timeline.push({
+        type: "condition",
+        timestamp: r.receivedAt,
+        label: `Active Diagnosis: ${r.resource?.code?.text || "Condition"}`,
+        detail: `Status: ${r.resource?.clinicalStatus?.coding?.[0]?.code || "active"}`,
+        data: r.resource
+      });
+    } else if (r.resourceType === "MedicationRequest") {
+      timeline.push({
+        type: "medication",
+        timestamp: r.receivedAt,
+        label: `Prescription: ${r.resource?.medicationCodeableConcept?.text || "Medication"}`,
+        detail: `Status: ${r.resource?.status || "active"}`,
+        data: r.resource
+      });
+    }
+  }
+
+  timeline.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  res.json(timeline);
+});
+
+app.get("/api/twins/:patientId/fhir-bundle",auth,async(req,res)=>{
+  const patientId=req.params.patientId;
+  if(req.user.role==="patient" && req.user.sub!==patientId) return res.status(403).json({message:"RBAC denied"});
+  const [patientDoc, resourceDocs] = await Promise.all([
+    Patient.findOne({fhirId:patientId}),
+    FHIRResource.find({patientId}).sort({receivedAt:1})
+  ]);
+
+  const entries = [];
+  if (patientDoc?.resource) {
+    entries.push({
+      fullUrl: `http://localhost:${PORT}/fhir/R4/Patient/${patientId}`,
+      resource: patientDoc.resource
+    });
+  }
+  for (const r of resourceDocs) {
+    if (r.resource) {
+      entries.push({
+        fullUrl: `http://localhost:${PORT}/fhir/R4/${r.resourceType}/${r.fhirId}`,
+        resource: r.resource
+      });
+    }
+  }
+
+  const bundle = {
+    resourceType: "Bundle",
+    id: `bundle-twin-${patientId}-${Date.now()}`,
+    type: "collection",
+    total: entries.length,
+    entry: entries
+  };
+  res.type("application/fhir+json").json(bundle);
+});
+
+app.post("/api/collect/stream-vitals",auth,async(req,res)=>{
+  const { patientId = "P001" } = req.body || {};
+  const twin = await HealthTwin.findOne({ patientId });
+  const prev = twin?.latestVitals || {};
+  const hrJitter = Math.floor(Math.random() * 5) - 2;
+  const hr = Math.min(100, Math.max(65, (Number(prev.heartRate) || 75) + hrJitter));
+  const sysJitter = Math.floor(Math.random() * 5) - 2;
+  const sys = Math.min(145, Math.max(110, (Number(prev.systolic) || 122) + sysJitter));
+  const diaJitter = Math.floor(Math.random() * 3) - 1;
+  const dia = Math.min(90, Math.max(70, (Number(prev.diastolic) || 80) + diaJitter));
+  const spo2 = Math.min(100, Math.max(95, (Number(prev.spo2) || 98) + (Math.random() > 0.5 ? 1 : 0)));
+  const temp = Number((36.5 + Math.random() * 0.4).toFixed(1));
+
+  const v = {
+    patientId,
+    timestamp: new Date().toISOString(),
+    heartRate: hr,
+    systolic: sys,
+    diastolic: dia,
+    spo2,
+    temperature: temp
+  };
+
+  const resource = {
+    resourceType: "Observation",
+    id: `wear-stream-${patientId}-${Date.now()}`,
+    status: "final",
+    subject: { reference: `Patient/${patientId}` },
+    category: [{ coding: [{ system: "http://terminology.hl7.org/CodeSystem/observation-category", code: "vital-signs" }] }],
+    code: { coding: [{ system: "http://loinc.org", code: "8867-4", display: "Wearable vital signs" }], text: "Wearable vital signs" },
+    valueString: JSON.stringify(v),
+    effectiveDateTime: v.timestamp,
+    extension: [{ url: "https://medisphere.local/fhir/StructureDefinition/wearable-vitals", valueString: JSON.stringify(v) }]
+  };
+
+  const fhirResource = await collectToFhirThenKafka(resource, req.user.sub);
+  await audit(req.user.sub, req.user.role, "STREAM_WEARABLE_VITAL_KAFKA", patientId, "SUCCESS", { hr, bp: `${sys}/${dia}` });
+  res.status(202).json({
+    pipeline: ["COLLECT (Wearables)", "FHIR R4 API", "KAFKA (patient-health-data)", "MONGODB", "DIGITAL HEALTH TWIN"],
+    resource: fhirResource,
+    vitals: v
+  });
 });
 app.get("/api/validation",auth,async(req,res)=>{
   const [resources,consents,twins,audits] = await Promise.all([

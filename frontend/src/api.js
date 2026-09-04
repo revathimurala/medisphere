@@ -36,4 +36,9 @@ export const api = {
   getAuditLog: () => unwrap(http.get("/audit")),
   syncFromFhir: (patientId) => unwrap(http.post(`/fhir/sync/${encodeURIComponent(patientId)}`, {})),
   runExcelPipeline: () => unwrap(http.post("/demo/collect-excel")),
+  uploadExcelFile: (fileBase64, filename) => unwrap(http.post("/demo/upload-excel", { fileBase64, filename })),
+  getTemplateUrl: () => `${baseURL}/demo/download-template`,
+  getTimeline: (patientId) => unwrap(http.get(`/twins/${encodeURIComponent(patientId)}/timeline`)),
+  getFhirBundle: (patientId) => unwrap(http.get(`/twins/${encodeURIComponent(patientId)}/fhir-bundle`)),
+  streamVitals: (patientId) => unwrap(http.post("/collect/stream-vitals", { patientId })),
 };

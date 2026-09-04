@@ -8,6 +8,7 @@ import PatientList from "./components/PatientList";
 import TwinPanel from "./components/TwinPanel";
 import ValidationPanel from "./components/ValidationPanel";
 import AuditLog from "./components/AuditLog";
+import PipelinePanel from "./components/PipelinePanel";
 import { api } from "./api";
 
 function Shell({ user, onLogout }) {
@@ -87,9 +88,14 @@ function Shell({ user, onLogout }) {
   };
 
   const title =
-    { dashboard: "Patient 360 Dashboard", patients: "Patients", twin: "Digital Twin", validation: "Validation", audit: "Audit Log" }[
-      view
-    ] || "Dashboard";
+    {
+      dashboard: "Patient 360 Dashboard",
+      pipeline: "Data Ingestion Pipeline",
+      patients: "Patients",
+      twin: "Digital Twin",
+      validation: "Validation",
+      audit: "Audit Log"
+    }[view] || "Dashboard";
 
   return (
     <div className="app">
@@ -108,6 +114,9 @@ function Shell({ user, onLogout }) {
 
           {view === "dashboard" && (
             <>
+              {isProvider && (
+                <PipelinePanel onComplete={refreshAfterChange} />
+              )}
               <StatCards
                 patientCount={isProvider ? patients.length : 1}
                 resourceCount={validation?.fhirResourceValidation?.total ?? 0}
@@ -121,15 +130,19 @@ function Shell({ user, onLogout }) {
                   onSynced={refreshAfterChange}
                 />
               )}
-              <TwinPanel twin={twin} />
+              <TwinPanel twin={twin} onRefresh={refreshAfterChange} />
             </>
+          )}
+
+          {view === "pipeline" && isProvider && (
+            <PipelinePanel onComplete={refreshAfterChange} />
           )}
 
           {view === "patients" && isProvider && (
             <PatientList patients={patients} selectedId={selectedId} onOpen={(id) => { openPatient(id); setView("twin"); }} onSynced={refreshAfterChange} />
           )}
 
-          {view === "twin" && <TwinPanel twin={twin} />}
+          {view === "twin" && <TwinPanel twin={twin} onRefresh={refreshAfterChange} />}
 
           {view === "validation" && <ValidationPanel data={validation} />}
 
