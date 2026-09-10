@@ -1,4 +1,4 @@
-# MediSphere Cognitive Twin — Milestone 1
+# MediSphere Cognitive Twin
 
 ## FHIR Integration & Digital Twin Foundation
 
