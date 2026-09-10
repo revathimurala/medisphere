@@ -1,10 +1,15 @@
-export default function TopBar({ title, username, onLogout }) {
+export default function TopBar({ title, username, role, onLogout }) {
   return (
     <header className="topbar">
       <h1>{title}</h1>
       <div className="topbar__user">
-        <span>{username}</span>
-        <button onClick={onLogout}>Sign out</button>
+        <span className="topbar__user-badge">
+          {role === "provider" ? "Clinician" : "Patient"}
+        </span>
+        <span className="topbar__username">{username}</span>
+        <button type="button" className="topbar__logout-btn" onClick={onLogout}>
+          Sign out
+        </button>
       </div>
     </header>
   );

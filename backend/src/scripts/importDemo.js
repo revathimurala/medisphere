@@ -12,7 +12,22 @@ const resourceSchema=new mongoose.Schema({patientId:String,resourceType:String,f
 const Consent=mongoose.model("Consent",consentSchema);
 const FHIRResource=mongoose.model("FHIRResource",resourceSchema);
 
-await mongoose.connect(uri);
+const timeoutMs = Number(process.env.MONGO_TIMEOUT_MS || 10000);
+const maskedUri = uri.includes("@")
+  ? uri.replace(/\/\/([^:]+):([^@]+)@/, "//$1:****@")
+  : uri;
+
+try {
+  console.log(`Connecting to MongoDB for demo import: ${maskedUri}...`);
+  await mongoose.connect(uri, {
+    serverSelectionTimeoutMS: timeoutMs,
+    dbName: process.env.MONGO_DB_NAME || "medisphere"
+  });
+  console.log(`Connected to MongoDB [Database: ${mongoose.connection.name}]`);
+} catch (err) {
+  console.error(`Failed to connect to MongoDB: ${err.message}`);
+  process.exit(1);
+}
 const wb=xlsx.readFile(file);
 const rows=name=>xlsx.utils.sheet_to_json(wb.Sheets[name],{defval:null});
 

@@ -70,10 +70,10 @@ export default function TwinPanel({ twin, onRefresh }) {
 
   return (
     <section className="panel twin-panel">
-      {/* Head: Official Milestone 1 Output Title */}
+      {/* Head: Clinical Digital Twin */}
       <div className="twin-panel__head">
         <div>
-          <div className="twin-panel__eyebrow">Digital Health Twin — Milestone 1 Foundation</div>
+          <div className="twin-panel__eyebrow">Digital Health Twin — Patient 360 Dynamic Model</div>
           <h2>{patientName}</h2>
           <p>
             FHIR Patient Resource: <b>Loaded from Local FHIR R4 / EHR API</b> (MRN: {twin.patientId})
@@ -89,7 +89,7 @@ export default function TwinPanel({ twin, onRefresh }) {
         </div>
       </div>
 
-      {/* Clinical Summary Bar (Direct from PDF Page 4 Mockup) */}
+      {/* Clinical Summary Bar */}
       <div className="twin-summary-bar">
         <div className="summary-item">
           <small>Demographics</small>
@@ -190,7 +190,7 @@ export default function TwinPanel({ twin, onRefresh }) {
           </div>
 
           <div className="twin-block">
-            <h4>Milestone 1 Foundation Health</h4>
+            <h4>Clinical Governance &amp; Security</h4>
             <div className="twin-health-meta">
               <div><span>HIPAA Consent:</span> <b>{twin.consentStatus || "Granted"}</b></div>
               <div><span>Twin Coverage:</span> <b>100%</b></div>
@@ -202,7 +202,7 @@ export default function TwinPanel({ twin, onRefresh }) {
 
       {/* Footer Meta */}
       <div className="twin-panel__footer">
-        <span>Digital Twin Model: <b>MediSphere-v1.0-Foundation</b></span>
+        <span>Digital Twin Engine: <b>MediSphere Real-Time Clinical v1.0</b></span>
         <span>
           Last Updated: <b>{twin.lastUpdated ? new Date(twin.lastUpdated).toLocaleString() : "Just now"}</b>
         </span>

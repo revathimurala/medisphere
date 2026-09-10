@@ -9,12 +9,37 @@ import TwinPanel from "./components/TwinPanel";
 import ValidationPanel from "./components/ValidationPanel";
 import AuditLog from "./components/AuditLog";
 import PipelinePanel from "./components/PipelinePanel";
+import { PredictionsView, CareplansView, ReportsView } from "./components/IntelligencePanels";
+import Milestone2PredictionScreen from "./components/Milestone2PredictionScreen";
+import DashboardHub from "./components/DashboardHub";
 import { api } from "./api";
 
+const VALID_VIEWS = [
+  "dashboard",
+  "pipeline",
+  "patients",
+  "twin",
+  "validation",
+  "audit",
+  "predictions",
+  "careplans",
+  "reports",
+];
+
+function parseHash(hash) {
+  const clean = (hash || window.location.hash || "").replace(/^#\/?/, "");
+  if (!clean) return { view: "dashboard", patientId: null };
+  const parts = clean.split("/").filter(Boolean);
+  const view = VALID_VIEWS.includes(parts[0]) ? parts[0] : "dashboard";
+  const patientId = parts[1] || null;
+  return { view, patientId };
+}
+
 function Shell({ user, onLogout }) {
-  const [view, setView] = useState("dashboard");
+  const initialRoute = parseHash(window.location.hash);
+  const [view, setView] = useState(initialRoute.view);
   const [patients, setPatients] = useState([]);
-  const [selectedId, setSelectedId] = useState(null);
+  const [selectedId, setSelectedId] = useState(initialRoute.patientId);
   const [twin, setTwin] = useState(null);
   const [validation, setValidation] = useState(null);
   const [notice, setNotice] = useState("");
@@ -49,17 +74,56 @@ function Shell({ user, onLogout }) {
     []
   );
 
+  // Browser Navigation: Route changes via real browser URL hash
+  const navigateTo = useCallback(
+    (nextView, nextPatientId = null) => {
+      const targetId = nextPatientId || selectedId;
+      const targetHash = `#/${nextView}${targetId ? `/${targetId}` : ""}`;
+      if (window.location.hash !== targetHash) {
+        window.location.hash = targetHash;
+      } else {
+        setView(nextView);
+        if (targetId && targetId !== selectedId) {
+          openPatient(targetId);
+        }
+      }
+    },
+    [openPatient, selectedId]
+  );
+
+  // Listen to browser Back / Forward arrow clicks (native browser navigation)
+  useEffect(() => {
+    const handleHashChange = () => {
+      const { view: hView, patientId: hPatientId } = parseHash(window.location.hash);
+      setView(hView);
+      if (hPatientId && hPatientId !== selectedId) {
+        openPatient(hPatientId);
+      }
+    };
+
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
+  }, [openPatient, selectedId]);
+
   useEffect(() => {
     loadPatients().then((data) => {
       if (isProvider && data.length) {
-        const patientId = selectedId || data[0].id;
+        const { patientId: hashPatientId } = parseHash(window.location.hash);
+        const patientId = hashPatientId || selectedId || data[0].id;
         setSelectedId(patientId);
         openPatient(patientId);
+        if (!window.location.hash) {
+          window.location.hash = `#/dashboard/${patientId}`;
+        }
       }
     });
     loadValidation();
-    // A patient session goes straight to its own twin - there is no roster to browse.
-    if (!isProvider) openPatient(user.username);
+    if (!isProvider) {
+      openPatient(user.username);
+      if (!window.location.hash) {
+        window.location.hash = `#/dashboard/${user.username}`;
+      }
+    }
   }, [isProvider, loadPatients, loadValidation, openPatient, selectedId, user.username]);
 
   useEffect(() => {
@@ -87,50 +151,57 @@ function Shell({ user, onLogout }) {
     }
   };
 
+  const currentPatient =
+    patients.find((p) => p.id === (selectedId || twin?.patientId)) ||
+    (twin?.demographics ? { id: twin.patientId, name: twin.demographics.name } : null);
+
   const title =
     {
-      dashboard: "Patient 360 Dashboard",
+      dashboard: isProvider ? "Patient 360 Dashboard" : "My Health Dashboard",
       pipeline: "Data Ingestion Pipeline",
       patients: "Patients",
       twin: "Digital Twin",
-      validation: "Validation",
-      audit: "Audit Log"
+      validation: "System Compliance",
+      audit: "Audit Log",
+      predictions: "AI Risk Prediction Engine",
+      careplans: "Precision Care Protocol",
+      reports: "Clinical Health Summary",
     }[view] || "Dashboard";
 
   return (
     <div className="app">
-      <Sidebar current={view} onSelect={setView} role={user.role} />
+      <Sidebar current={view} onSelect={(v) => navigateTo(v)} role={user.role} />
       <div className="app__main">
-        <TopBar title={title} username={user.username} onLogout={onLogout} />
+        <TopBar
+          title={title}
+          username={user.username}
+          role={user.role}
+          onLogout={onLogout}
+        />
         <main className="content">
           {notice && <div className="notice">{notice}</div>}
-
-          {!isProvider && (
-            <div className="notice notice--info">
-              You're signed in as a patient — this view is scoped to your own record only.
-              The backend rejects requests for any other patient (RBAC), it isn't just hidden here.
-            </div>
-          )}
 
           {view === "dashboard" && (
             <>
               {isProvider && (
-                <PipelinePanel onComplete={refreshAfterChange} />
-              )}
-              <StatCards
-                patientCount={isProvider ? patients.length : 1}
-                resourceCount={validation?.fhirResourceValidation?.total ?? 0}
-                twinCount={isProvider ? patients.filter((p) => p.twinReady).length : twin ? 1 : 0}
-              />
-              {isProvider && (
-                <PatientList
-                  patients={patients}
-                  selectedId={selectedId}
-                  onOpen={openPatient}
-                  onSynced={refreshAfterChange}
+                <StatCards
+                  patientCount={patients.length}
+                  resourceCount={validation?.fhirResourceValidation?.total ?? 0}
+                  twinCount={patients.filter((p) => p.twinReady).length}
                 />
               )}
-              <TwinPanel twin={twin} onRefresh={refreshAfterChange} />
+              <DashboardHub
+                twin={twin}
+                patient={currentPatient}
+                patients={patients}
+                selectedId={selectedId}
+                onSelectPatient={(pid) => {
+                  openPatient(pid);
+                  navigateTo("dashboard", pid);
+                }}
+                isProvider={isProvider}
+                onNavigate={(v) => navigateTo(v)}
+              />
             </>
           )}
 
@@ -139,16 +210,46 @@ function Shell({ user, onLogout }) {
           )}
 
           {view === "patients" && isProvider && (
-            <PatientList patients={patients} selectedId={selectedId} onOpen={(id) => { openPatient(id); setView("twin"); }} onSynced={refreshAfterChange} />
+            <PatientList
+              patients={patients}
+              selectedId={selectedId}
+              onOpen={(id) => navigateTo("twin", id)}
+              onOpenTwin={(id) => navigateTo("twin", id)}
+              onOpenPredictions={(id) => navigateTo("predictions", id)}
+              onSynced={refreshAfterChange}
+            />
           )}
 
           {view === "twin" && <TwinPanel twin={twin} onRefresh={refreshAfterChange} />}
 
-          {view === "validation" && <ValidationPanel data={validation} />}
+          {view === "validation" && isProvider && <ValidationPanel data={validation} />}
 
           {view === "audit" && isProvider && <AuditLog />}
-          {view === "audit" && !isProvider && (
-            <div className="panel empty-panel">The audit trail is a provider-only view (RBAC).</div>
+
+          {view === "predictions" && (
+            <Milestone2PredictionScreen
+              selectedPatientId={selectedId || "P001"}
+              onSelectPatient={(pid) => {
+                setSelectedId(pid);
+                openPatient(pid);
+                navigateTo("predictions", pid);
+              }}
+              onNavigate={(v) => navigateTo(v)}
+            />
+          )}
+
+          {view === "careplans" && (
+            <CareplansView
+              twin={twin}
+              patientName={currentPatient?.name || twin?.patientId}
+            />
+          )}
+
+          {view === "reports" && (
+            <ReportsView
+              twin={twin}
+              patientName={currentPatient?.name || twin?.patientId}
+            />
           )}
         </main>
       </div>

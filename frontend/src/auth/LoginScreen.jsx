@@ -19,7 +19,7 @@ export default function LoginScreen() {
       <div className="login-card">
         <div className="login-card__brand">MediSphere</div>
         <h1>Clinical Operations</h1>
-        <p className="login-card__tag">Milestone 1 · FHIR Integration &amp; Twin Foundation</p>
+        <p className="login-card__tag">FHIR R4 Interoperability &amp; Digital Health Twin Platform</p>
 
         <button className="login-btn login-btn--primary" onClick={loginAsProvider} disabled={loading}>
           {loading ? "Signing in…" : "Sign in as Clinician / Provider"}
@@ -29,15 +29,15 @@ export default function LoginScreen() {
           <input
             value={patientId}
             onChange={(e) => setPatientId(e.target.value)}
-            placeholder="Patient ID, e.g. P001"
+            placeholder="Patient ID (e.g. P001)"
           />
           <button className="login-btn" type="submit" disabled={loading}>
             Sign in as Patient
           </button>
         </form>
+
         <p className="login-card__hint">
-          A patient session is scoped to that one record only — the backend rejects
-          requests for any other patient's twin (RBAC), it isn't just hidden by this UI.
+          Sign in with any patient ID (P001 to P005) to access your personalized Digital Health Twin, vitals telemetry, and precision careplan.
         </p>
 
         {error && <div className="login-card__error">{error}</div>}

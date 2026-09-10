@@ -114,7 +114,7 @@ export default function PipelinePanel({ onComplete }) {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "medisphere_milestone1_template.xlsx";
+      a.download = "medisphere_clinical_data_template.xlsx";
       document.body.appendChild(a);
       a.click();
       a.remove();

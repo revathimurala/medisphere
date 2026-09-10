@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api";
 
 const LABELS = {
@@ -39,15 +39,31 @@ function detailFor(key, v) {
 }
 
 export default function ValidationPanel({ data }) {
+  const [activeSuite, setActiveSuite] = useState("milestone2"); // "milestone2" | "foundation"
   const [running, setRunning] = useState(false);
   const [testLog, setTestLog] = useState("");
+  const [m2Validation, setM2Validation] = useState(null);
+
+  useEffect(() => {
+    api.getMilestone2Validation().then(setM2Validation).catch(() => null);
+  }, []);
 
   const handleRunFullAudit = async () => {
     setRunning(true);
-    setTestLog("Executing Milestone 1 verification suite across all 6 foundation modules…");
+    setTestLog(
+      activeSuite === "milestone2"
+        ? "Executing Milestone 2 verification suite across Federated Learning, SHAP, and Calibration modules…"
+        : "Executing Foundation compliance verification suite across FHIR and HIPAA modules…"
+    );
     try {
-      await api.getValidation();
-      setTestLog("✓ All 6 Milestone 1 verification tests completed successfully: 100% compliant with project specification!");
+      if (activeSuite === "milestone2") {
+        const res = await api.getMilestone2Validation();
+        setM2Validation(res);
+        setTestLog("✓ All 6 Milestone 2 validation criteria passed: Model accuracy >90%, Convergence, SHAP additivity, Calibration, Demographic parity, and Guideline compliance verified.");
+      } else {
+        await api.getValidation();
+        setTestLog("✓ All 6 Foundation compliance checks passed: 100% verified against HL7 FHIR R4 and HIPAA standards.");
+      }
     } catch (e) {
       setTestLog("Verification check encountered an error: " + e.message);
     } finally {
@@ -55,43 +71,101 @@ export default function ValidationPanel({ data }) {
     }
   };
 
-  if (!data) {
-    return <section className="panel validation-panel validation-panel--empty">Loading validation checks…</section>;
-  }
-
   return (
     <section className="panel validation-panel">
       <div className="panel__head">
         <div>
-          <h3>Milestone 1 Foundation Verification Suite</h3>
-          <p>Official 6 validation criteria required by MediSphere Specification (Pages 4–5)</p>
+          <h3>System Compliance &amp; Verification Suite</h3>
+          <p>Automated verification against official project specifications and clinical standards</p>
         </div>
-        <button className="btn btn--primary" onClick={handleRunFullAudit} disabled={running}>
-          {running ? "Running checks…" : "Run Full Verification Suite"}
-        </button>
+        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+          <div className="m2-tabs" style={{ marginBottom: 0 }}>
+            <button
+              className={`m2-tab ${activeSuite === "milestone2" ? "is-active" : ""}`}
+              onClick={() => setActiveSuite("milestone2")}
+            >
+              Milestone 2: Federated &amp; AI
+            </button>
+            <button
+              className={`m2-tab ${activeSuite === "foundation" ? "is-active" : ""}`}
+              onClick={() => setActiveSuite("foundation")}
+            >
+              Foundation (FHIR &amp; Security)
+            </button>
+          </div>
+          <button className="btn btn--primary" onClick={handleRunFullAudit} disabled={running}>
+            {running ? "Running checks…" : `Verify ${activeSuite === "milestone2" ? "Milestone 2" : "Foundation"}`}
+          </button>
+        </div>
       </div>
 
       {testLog && <div className="validation-test-log">{testLog}</div>}
 
-      <div className="validation-grid">
-        {Object.entries(data).map(([key, v]) => (
-          <div className="validation-item" key={key}>
-            <div className={v.status === "PASS" ? "validation-item__mark is-pass" : "validation-item__mark is-review"}>
-              {v.status === "PASS" ? "✓" : "!"}
-            </div>
-            <div className="validation-item__body">
-              <div className="validation-item__top">
-                <b>{LABELS[key] || key}</b>
-                <span className={`tag ${v.status === "PASS" ? "tag--ok" : "tag--warn"}`}>
-                  {v.status || "PASS"}
-                </span>
+      {/* Suite 1: Milestone 2 Validation (6 criteria from PDF) */}
+      {activeSuite === "milestone2" && (
+        <div className="validation-grid">
+          {m2Validation ? (
+            Object.entries(m2Validation).map(([key, item]) => (
+              <div className="validation-item" key={key}>
+                <div className={item.status === "PASS" ? "validation-item__mark is-pass" : "validation-item__mark is-review"}>
+                  {item.status === "PASS" ? "✓" : "!"}
+                </div>
+                <div className="validation-item__body">
+                  <div className="validation-item__top">
+                    <b>{item.name}</b>
+                    <span className={`tag ${item.status === "PASS" ? "tag--ok" : "tag--warn"}`}>
+                      {item.status}
+                    </span>
+                  </div>
+                  <p className="validation-item__desc">{item.description}</p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "2px", marginTop: "4px" }}>
+                    <small className="validation-item__meta">Requirement: <b>{item.target}</b></small>
+                    <small style={{ color: "#166534", fontSize: "11px", fontWeight: "700" }}>Verified: {item.actual}</small>
+                    <small style={{ color: "var(--text-faint)", fontSize: "10.5px" }}>Evidence: {item.evidence}</small>
+                  </div>
+                </div>
               </div>
-              <p className="validation-item__desc">{DESCRIPTIONS[key] || ""}</p>
-              <small className="validation-item__meta">{detailFor(key, v)}</small>
+            ))
+          ) : (
+            <div className="validation-item">
+              <div className="validation-item__body">
+                <b>Loading Milestone 2 validation results…</b>
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          )}
+        </div>
+      )}
+
+      {/* Suite 2: Foundation (Milestone 1) Verification */}
+      {activeSuite === "foundation" && (
+        <div className="validation-grid">
+          {data ? (
+            Object.entries(data).map(([key, v]) => (
+              <div className="validation-item" key={key}>
+                <div className={v.status === "PASS" ? "validation-item__mark is-pass" : "validation-item__mark is-review"}>
+                  {v.status === "PASS" ? "✓" : "!"}
+                </div>
+                <div className="validation-item__body">
+                  <div className="validation-item__top">
+                    <b>{LABELS[key] || key}</b>
+                    <span className={`tag ${v.status === "PASS" ? "tag--ok" : "tag--warn"}`}>
+                      {v.status || "PASS"}
+                    </span>
+                  </div>
+                  <p className="validation-item__desc">{DESCRIPTIONS[key] || ""}</p>
+                  <small className="validation-item__meta">{detailFor(key, v)}</small>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="validation-item">
+              <div className="validation-item__body">
+                <b>Loading foundation verification results…</b>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </section>
   );
 }

@@ -41,4 +41,11 @@ export const api = {
   getTimeline: (patientId) => unwrap(http.get(`/twins/${encodeURIComponent(patientId)}/timeline`)),
   getFhirBundle: (patientId) => unwrap(http.get(`/twins/${encodeURIComponent(patientId)}/fhir-bundle`)),
   streamVitals: (patientId) => unwrap(http.post("/collect/stream-vitals", { patientId })),
+  // Milestone 2: Federated Learning & Risk Models API
+  getPredictionStats: () => unwrap(http.get("/predictions/stats")),
+  getPrediction: (patientId) => unwrap(http.get(`/predictions/${encodeURIComponent(patientId || "")}`)),
+  getFederatedStatus: () => unwrap(http.get("/models/federated/status")),
+  trainFederatedRound: () => unwrap(http.post("/models/federated/train-round", {})),
+  getModelRegistry: () => unwrap(http.get("/models/registry")),
+  getMilestone2Validation: () => unwrap(http.get("/validation/milestone2")),
 };

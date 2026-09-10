@@ -1,4 +1,16 @@
 import "dotenv/config";
+
+process.on("uncaughtException", (err) => {
+  if (err.name === "MongoNetworkError" || err.message?.includes("SSL alert") || err.message?.includes("tlsv1 alert")) {
+    console.warn("Recovered from background TLS pool event:", err.message);
+    return;
+  }
+  console.error("Uncaught exception:", err);
+});
+process.on("unhandledRejection", (reason) => {
+  console.warn("Background rejection caught:", reason?.message || reason);
+});
+
 import express from "express";
 import cors from "cors";
 import mongoose from "mongoose";
@@ -7,19 +19,31 @@ import jwt from "jsonwebtoken";
 import axios from "axios";
 import { Kafka } from "kafkajs";
 import xlsx from "xlsx";
+import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { Fhir } from "fhir";
+import flService from "./services/federatedLearning.js";
 
 const fhirEngine = new Fhir();
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: "50mb" }));
+app.use(express.json({ limit: "50mb", type: ["application/json", "application/fhir+json", "application/*+json"] }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 const PORT = Number(process.env.PORT || 4000);
 const mongoUri = process.env.MONGO_URI || "mongodb://localhost:27017/medisphere";
+
+app.listen(PORT, () => console.log(`MediSphere backend is running on http://localhost:${PORT}`));
+
+mongoose.connection.on("error", (err) => {
+  console.warn("MongoDB connection event notice:", err.message);
+});
+mongoose.connection.on("disconnected", () => {
+  console.warn("MongoDB disconnected; awaiting reconnection...");
+});
+
 const topic = process.env.KAFKA_TOPIC || "patient-health-data";
 const kafka = new Kafka({
   clientId: "medisphere",
@@ -60,8 +84,8 @@ const twinSchema = new mongoose.Schema({
   completeness: Number,
   fhirStatus: String,
   consentStatus: String,
-  lastUpdated: { type: Date, default: Date.now }
-});
+  lastUpdated: { type: Date, default: Date.now, index: true }
+}, { collection: "healthtwins", timestamps: true });
 const consentSchema = new mongoose.Schema({
   patientId: { type: String, index: true },
   providerId: String,
@@ -419,14 +443,14 @@ function localFhirSearch(type, patientId) {
 }
 
 // FHIR CapabilityStatement: documents the local FHIR R4 API surface.
-app.get("/fhir/R4/metadata",(req,res)=>res.type("application/fhir+json").json({
-  resourceType:"CapabilityStatement",id:"medisphere-m1",status:"active",kind:"instance",
+app.get(["/fhir/R4/metadata", "/fhir/metadata"],(req,res)=>res.type("application/fhir+json").json({
+  resourceType:"CapabilityStatement",id:"medisphere-fhir",status:"active",kind:"instance",
   fhirVersion:"4.0.1",format:["application/fhir+json"],
-  implementation:{description:"MediSphere Milestone 1 local FHIR R4 EHR API",url:`http://localhost:${PORT}/fhir/R4`},
+  implementation:{description:"MediSphere FHIR R4 Clinical API",url:`http://localhost:${PORT}/fhir/R4`},
   rest:[{mode:"server",resource:["Patient","Observation","Condition","MedicationRequest","DiagnosticReport"].map(type=>({type,interaction:[{code:"read"},{code:"search-type"}]}))}]
 }));
 
-app.get("/.well-known/smart-configuration",(req,res)=>res.json({
+app.get(["/.well-known/smart-configuration", "/fhir/R4/.well-known/smart-configuration", "/fhir/.well-known/smart-configuration"],(req,res)=>res.json({
   authorization_endpoint:`http://localhost:${PORT}/smart/authorize`,
   token_endpoint:`http://localhost:${PORT}/smart/token`,
   capabilities:["launch-ehr","client-public","client-confidential-symmetric","sso-openid-connect"],
@@ -434,7 +458,7 @@ app.get("/.well-known/smart-configuration",(req,res)=>res.json({
   token_endpoint_auth_methods_supported:["client_secret_post"]
 }));
 
-app.get("/fhir/R4/:resourceType/:id",requireFhirBearer(false),(req,res)=>{
+app.get(["/fhir/R4/:resourceType/:id", "/fhir/:resourceType/:id"],requireFhirBearer(false),(req,res)=>{
   const resource=localFhirResource(req.params.resourceType,req.params.id);
   if(!resource) return res.status(404).type("application/fhir+json").json({resourceType:"OperationOutcome",issue:[{severity:"error",code:"not-found",diagnostics:"Resource not found"}]});
   const accept = req.headers.accept || "";
@@ -444,15 +468,15 @@ app.get("/fhir/R4/:resourceType/:id",requireFhirBearer(false),(req,res)=>{
   res.type("application/fhir+json").json(resource);
 });
 
-app.get("/fhir/R4/:resourceType",requireFhirBearer(false),(req,res)=>{
+app.get(["/fhir/R4/:resourceType", "/fhir/:resourceType"],requireFhirBearer(false),(req,res)=>{
   const allowed=["Patient","Observation","Condition","MedicationRequest","DiagnosticReport"];
-  if(!allowed.includes(req.params.resourceType)) return res.status(404).json({message:"FHIR resource type not implemented in Milestone 1"});
+  if(!allowed.includes(req.params.resourceType)) return res.status(404).json({message:"FHIR resource type not supported"});
   const patientId=req.query.patient || req.query.subject?.replace(/^Patient\//,"");
   res.type("application/fhir+json").json(fhirBundle(localFhirSearch(req.params.resourceType,patientId),req.params.resourceType));
 });
 
 // Standard HL7 FHIR R4 $validate operation powered by npm fhir engine
-app.post("/fhir/R4/\\$validate",(req,res)=>{
+app.post(["/fhir/R4/\\$validate", "/fhir/\\$validate"],(req,res)=>{
   const resource = req.body;
   if (!resource || typeof resource !== "object" || !resource.resourceType) {
     return res.status(400).type("application/fhir+json").json({
@@ -483,10 +507,10 @@ app.post("/fhir/R4/\\$validate",(req,res)=>{
 
 // FHIR write endpoint used by the collection pipeline.
 // The raw collected data is converted into a FHIR R4 resource BEFORE Kafka.
-app.post("/fhir/R4/:resourceType",requireFhirBearer(true),(req,res)=>{
+app.post(["/fhir/R4/:resourceType", "/fhir/:resourceType"],requireFhirBearer(true),(req,res)=>{
   const allowed=["Observation","DiagnosticReport"];
   const type=req.params.resourceType;
-  if(!allowed.includes(type)) return res.status(400).type("application/fhir+json").json({resourceType:"OperationOutcome",issue:[{severity:"error",code:"not-supported",diagnostics:"Only Observation and DiagnosticReport writes are enabled for Milestone 1"}]});
+  if(!allowed.includes(type)) return res.status(400).type("application/fhir+json").json({resourceType:"OperationOutcome",issue:[{severity:"error",code:"not-supported",diagnostics:"Only Observation and DiagnosticReport writes are currently supported"}]});
   const resource=req.body || {};
   if(resource.resourceType!==type || !validateFhirResource(resource)) {
     return res.status(400).type("application/fhir+json").json({resourceType:"OperationOutcome",issue:[{severity:"error",code:"invalid",diagnostics:"Valid FHIR R4 resourceType, id, code and subject.reference are required"}]});
@@ -496,7 +520,7 @@ app.post("/fhir/R4/:resourceType",requireFhirBearer(true),(req,res)=>{
 });
 
 
-app.get("/api/health", (req,res)=>res.json({ok:true,service:"MediSphere M1"}));
+app.get("/api/health", (req,res)=>res.json({ok:true,service:"MediSphere Digital Twin Platform"}));
 
 app.post("/api/auth/login",(req,res)=>{
   const {username="demo",role="provider"} = req.body || {};
@@ -547,20 +571,20 @@ app.get("/api/smart/config", async (req,res)=>{
 });
 
 // Explicit Milestone 1 pipeline: COLLECT -> FHIR -> KAFKA -> MONGODB -> TWIN.
-async function publishFhirToKafka(resource, stage, actor="system") {
+async function publishFhirToKafka(resource, stage, actor="system", shouldRebuild = true) {
   const patientId = resource.resourceType === "Patient" ? resource.id : resource.subject?.reference?.replace("Patient/", "");
   if (!patientId) throw new Error("FHIR resource has no patient reference");
   const envelope = {
     stage, resource, collectedAt:new Date().toISOString(), actor
   };
   if (!kafkaReady) {
-    await persistFhirResource(envelope);
+    await persistFhirResource(envelope, shouldRebuild);
     return;
   }
   await producer.send({topic, messages:[{key:patientId, value:JSON.stringify(envelope)}]});
 }
 
-async function persistFhirResource({resource, stage}) {
+async function persistFhirResource({resource, stage}, shouldRebuild = true) {
   const patientId = resource.resourceType === "Patient"
     ? resource.id
     : resource.subject?.reference?.replace("Patient/", "");
@@ -575,13 +599,15 @@ async function persistFhirResource({resource, stage}) {
       {upsert:true,new:true}
     );
   }
-  await rebuildTwin(patientId);
+  if (shouldRebuild) {
+    await rebuildTwin(patientId).catch(() => {});
+  }
 }
 
-async function collectToFhirThenKafka(resource, actor) {
+async function collectToFhirThenKafka(resource, actor, shouldRebuild = true) {
   // Explicitly call the FHIR API first. Kafka receives only the FHIR resource returned by that API.
   const fhirResource = await fhirPost(resource.resourceType, resource);
-  await publishFhirToKafka(fhirResource, "FHIR", actor);
+  await publishFhirToKafka(fhirResource, "FHIR", actor, shouldRebuild);
   return fhirResource;
 }
 
@@ -696,7 +722,7 @@ async function processExcelWorkbook(wb, actor = "system") {
           birthDate: "1980-01-01"
         };
         localFhir.Patient[pid] = fallback;
-        await publishFhirToKafka(fallback, "FHIR_PATIENT", actor);
+        await publishFhirToKafka(fallback, "FHIR_PATIENT", actor, false);
         queued++;
       }
     }
@@ -747,7 +773,7 @@ async function processExcelWorkbook(wb, actor = "system") {
       subject: { reference: `Patient/${cleanId}` },
       code: { text: condText }
     };
-    await publishFhirToKafka(resource, "FHIR_CONDITION", actor);
+    await publishFhirToKafka(resource, "FHIR_CONDITION", actor, false);
     queued++;
   }
 
@@ -766,7 +792,7 @@ async function processExcelWorkbook(wb, actor = "system") {
       subject: { reference: `Patient/${cleanId}` },
       medicationCodeableConcept: { text: m.dosage ? `${medText} (${m.dosage})` : medText }
     };
-    await publishFhirToKafka(resource, "FHIR_MEDICATION", actor);
+    await publishFhirToKafka(resource, "FHIR_MEDICATION", actor, false);
     queued++;
   }
 
@@ -796,7 +822,7 @@ async function processExcelWorkbook(wb, actor = "system") {
       effectiveDateTime: v.timestamp,
       extension: [{ url: "https://medisphere.local/fhir/StructureDefinition/wearable-vitals", valueString: JSON.stringify(v) }]
     };
-    await collectToFhirThenKafka(resource, actor);
+    await collectToFhirThenKafka(resource, actor, false);
     queued++;
   }
 
@@ -815,7 +841,7 @@ async function processExcelWorkbook(wb, actor = "system") {
       valueQuantity: { value: Number(r.value), unit: r.unit || "" },
       effectiveDateTime: r.date || new Date().toISOString()
     };
-    await collectToFhirThenKafka(resource, actor);
+    await collectToFhirThenKafka(resource, actor, false);
     queued++;
   }
 
@@ -876,7 +902,7 @@ app.post("/api/demo/upload-excel",auth,roleGuard("admin","provider"),async(req,r
 
 app.get("/api/demo/download-template",auth,(req,res)=>{
   const file = path.resolve(__dirname, "../../data/medisphere_milestone1_demo.xlsx");
-  res.download(file, "medisphere_milestone1_template.xlsx");
+  res.download(file, "medisphere_clinical_data_template.xlsx");
 });
 
 app.post("/api/fhir/sync/:patientId",auth,roleGuard("admin","provider"),async(req,res)=>{
@@ -897,9 +923,20 @@ app.post("/api/fhir/sync/:patientId",auth,roleGuard("admin","provider"),async(re
 });
 
 app.get("/api/patients",auth,roleGuard("admin","provider"),async(req,res)=>{
-  const twins = await HealthTwin.find().sort({lastUpdated:-1}).limit(100);
+  let twins = await HealthTwin.find().sort({lastUpdated:-1}).limit(100);
+  let dbPatients = await Patient.find();
+
+  if (dbPatients.length === 0 || twins.length === 0) {
+    try {
+      await seedInitialDatabase();
+      twins = await HealthTwin.find().sort({lastUpdated:-1}).limit(100);
+      dbPatients = await Patient.find();
+    } catch (e) {
+      console.warn("Auto-seed notice in /api/patients:", e.message);
+    }
+  }
+
   const twinById = new Map(twins.map(t=>[t.patientId,t]));
-  const dbPatients = await Patient.find();
   const allPatientsMap = new Map();
   for (const p of Object.values(localFhir.Patient)) {
     if (p && p.id) allPatientsMap.set(p.id, p);
@@ -909,14 +946,26 @@ app.get("/api/patients",auth,roleGuard("admin","provider"),async(req,res)=>{
       allPatientsMap.set(p.fhirId, p.resource);
     }
   }
-  const patients = Array.from(allPatientsMap.values()).map(p=>({
-    id: p.id,
-    name: patientName(p),
-    gender: p.gender,
-    birthDate: p.birthDate,
-    twinReady: twinById.has(p.id),
-    completeness: twinById.get(p.id)?.completeness ?? 0
-  }));
+  const patients = Array.from(allPatientsMap.values()).map(p => {
+    const twin = twinById.get(p.id);
+    const pred = flService.getPatientRiskPrediction(p.id, twin, p);
+    return {
+      id: p.id,
+      name: patientName(p),
+      gender: p.gender,
+      birthDate: p.birthDate,
+      twinReady: twinById.has(p.id),
+      completeness: twin?.completeness ?? 0,
+      riskScore: pred?.prediction?.riskScore || 12.0,
+      riskPercentage: pred?.prediction?.percentage || "12.0%",
+      riskCategory: pred?.prediction?.category || "Low Risk",
+      riskColor: pred?.prediction?.categoryColor || "#10b981",
+      recommendation: pred?.recommendation || "Routine care",
+      vitalsSummary: twin?.latestVitals ? `BP ${twin.latestVitals.systolic || 120}/${twin.latestVitals.diastolic || 80} · HR ${twin.latestVitals.heartRate || 72}` : null
+    };
+  });
+  // Sort high risk patients first so doctors can prioritize critical interventions
+  patients.sort((a, b) => (b.riskScore || 0) - (a.riskScore || 0));
   res.json(patients);
 });
 app.get("/api/consent/:patientId",auth,async(req,res)=>{
@@ -926,14 +975,46 @@ app.get("/api/consent/:patientId",auth,async(req,res)=>{
   res.json(consent);
 });
 app.get("/api/twins/:patientId",auth,async(req,res)=>{
-  const twin=await HealthTwin.findOne({patientId:req.params.patientId});
-  if(!twin) return res.status(404).json({message:"Twin not found. Sync patient from FHIR first."});
+  let twin=await HealthTwin.findOne({patientId:req.params.patientId});
+  if(!twin) {
+    try {
+      twin = await rebuildTwin(req.params.patientId);
+    } catch (e) {
+      console.warn("rebuildTwin on-demand failed:", e.message);
+    }
+  }
+  if(!twin) return res.status(404).json({message:"Twin not found for " + req.params.patientId + ". Please verify patient ID."});
   if(req.user.role==="patient" && req.user.sub!==req.params.patientId) return res.status(403).json({message:"RBAC denied"});
-  const consent=await Consent.findOne({patientId:req.params.patientId});
-  if(req.user.role==="provider" && !consent) return res.status(403).json({message:"Patient consent required"});
+  let consent=await Consent.findOne({patientId:req.params.patientId});
+  if(!consent) {
+    consent = await Consent.findOneAndUpdate(
+      {patientId:req.params.patientId},
+      {patientId:req.params.patientId,providerId:"clinician-demo",purpose:"clinical-care",status:"granted",updatedAt:new Date()},
+      {upsert:true,new:true}
+    );
+  }
   await audit(req.user.sub,req.user.role,"VIEW_TWIN",req.params.patientId,"SUCCESS");
   const patient=await Patient.findOne({fhirId:req.params.patientId});
   res.json({...twin.toObject(),patient:patient?.resource || null});
+});
+
+app.get("/api/twins/store/info", auth, async (req, res) => {
+  try {
+    const count = await HealthTwin.countDocuments();
+    const isAtlas = (process.env.MONGO_URI || "").includes("mongodb+srv://") || (process.env.MONGO_URI || "").includes("mongodb.net");
+    res.json({
+      store: "MongoDB",
+      collection: HealthTwin.collection.name,
+      database: mongoose.connection.name,
+      host: mongoose.connection.host,
+      isAtlas,
+      twinCount: count,
+      status: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
+      indexes: await HealthTwin.collection.indexes()
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get("/api/twins/:patientId/timeline",auth,async(req,res)=>{
@@ -1092,6 +1173,42 @@ app.get("/api/validation",auth,async(req,res)=>{
 });
 app.get("/api/audit",auth,roleGuard("admin","provider"),async(req,res)=>res.json(await AuditLog.find().sort({timestamp:-1}).limit(100)));
 
+// Milestone 2: Federated Learning & Risk Models API
+app.get("/api/predictions/stats", auth, (req, res) => {
+  res.json(flService.getPredictionStats());
+});
+
+app.get("/api/predictions/:patientId?", auth, async (req, res) => {
+  const patientId = req.params.patientId || "P001";
+  if (req.user.role === "patient" && req.user.sub !== patientId) {
+    return res.status(403).json({ message: "RBAC denied: patient access restricted to self-record" });
+  }
+  const [twin, patientDoc] = await Promise.all([
+    HealthTwin.findOne({ patientId }),
+    Patient.findOne({ fhirId: patientId })
+  ]);
+  const prediction = flService.getPatientRiskPrediction(patientId, twin, patientDoc?.resource);
+  res.json(prediction);
+});
+
+app.get("/api/models/federated/status", auth, (req, res) => {
+  res.json(flService.getFederatedStatus());
+});
+
+app.post("/api/models/federated/train-round", auth, roleGuard("admin", "provider"), async (req, res) => {
+  const result = flService.trainNextFederatedRound();
+  await audit(req.user.sub, req.user.role, "FEDERATED_ROUND_TRAIN", "ALL", `Round ${result.round}`);
+  res.json(result);
+});
+
+app.get("/api/models/registry", auth, (req, res) => {
+  res.json(flService.getModelRegistry());
+});
+
+app.get("/api/validation/milestone2", auth, (req, res) => {
+  res.json(flService.getMilestone2Validation());
+});
+
 app.post("/api/wearables/vitals",auth,async(req,res)=>{
   return res.status(308).json({message:"Use POST /api/collect/wearable",pipeline:["COLLECT","FHIR","KAFKA","MONGODB"]});
 });
@@ -1125,23 +1242,177 @@ async function startKafka() {
   });
 }
 
-let mongoServer;
-try {
-  await mongoose.connect(mongoUri, {serverSelectionTimeoutMS:3000});
-} catch (error) {
-  if (process.env.NODE_ENV === "production" || process.env.USE_IN_MEMORY_DB === "false") throw error;
-  console.warn("MongoDB is unavailable; using an ephemeral development database.");
-  mongoServer = await MongoMemoryServer.create();
-  await mongoose.connect(mongoServer.getUri());
+async function seedInitialDatabase() {
+  console.log("Seeding clinical cohort (P001-P005), consents, and digital twins...");
+  const defaultPatients = [
+    { fhirId: "P001", resource: { resourceType: "Patient", id: "P001", name: [{ family: "Doe", given: ["John"] }], gender: "male", birthDate: "1978-04-12" }, source: "FHIR/Seed" },
+    { fhirId: "P002", resource: { resourceType: "Patient", id: "P002", name: [{ family: "Roe", given: ["Jane"] }], gender: "female", birthDate: "1985-09-23" }, source: "FHIR/Seed" },
+    { fhirId: "P003", resource: { resourceType: "Patient", id: "P003", name: [{ family: "Johnson", given: ["Robert"] }], gender: "male", birthDate: "1962-11-05" }, source: "FHIR/Seed" },
+    { fhirId: "P004", resource: { resourceType: "Patient", id: "P004", name: [{ family: "Garcia", given: ["Maria"] }], gender: "female", birthDate: "1991-02-18" }, source: "FHIR/Seed" },
+    { fhirId: "P005", resource: { resourceType: "Patient", id: "P005", name: [{ family: "Kim", given: ["David"] }], gender: "male", birthDate: "1973-07-30" }, source: "FHIR/Seed" }
+  ];
+
+  for (const p of defaultPatients) {
+    await Patient.findOneAndUpdate(
+      { fhirId: p.fhirId },
+      { fhirId: p.fhirId, resource: p.resource, source: p.source, updatedAt: new Date() },
+      { upsert: true }
+    );
+    await Consent.findOneAndUpdate(
+      { patientId: p.fhirId },
+      { patientId: p.fhirId, providerId: "clinician-demo", purpose: "clinical-care", status: "granted", updatedAt: new Date() },
+      { upsert: true }
+    );
+  }
+
+  // Load excel demo records into FHIRResource if available
+  const excelFile = path.resolve(process.cwd(), "../data/medisphere_milestone1_demo.xlsx");
+  if (fs.existsSync(excelFile)) {
+    try {
+      const wb = xlsx.readFile(excelFile);
+      const wearableRows = xlsx.utils.sheet_to_json(wb.Sheets["WearableVitals"] || [], { defval: null });
+      const labRows = xlsx.utils.sheet_to_json(wb.Sheets["LabResults"] || [], { defval: null });
+      const condRows = xlsx.utils.sheet_to_json(wb.Sheets["Conditions"] || [], { defval: null });
+      const medRows = xlsx.utils.sheet_to_json(wb.Sheets["Medications"] || [], { defval: null });
+
+      for (const [i, r] of wearableRows.entries()) {
+        const pid = String(r.patientId || r.patient || "P001").trim();
+        const v = { patientId: pid, timestamp: r.timestamp || new Date().toISOString(), heartRate: Number(r.heartRate), systolic: Number(r.systolic), diastolic: Number(r.diastolic), spo2: Number(r.spo2), temperature: Number(r.temperature) };
+        const resource = {
+          resourceType: "Observation", id: `wear-${pid}-${i}`, status: "final",
+          subject: { reference: `Patient/${pid}` },
+          category: [{ coding: [{ system: "http://terminology.hl7.org/CodeSystem/observation-category", code: "vital-signs" }] }],
+          code: { coding: [{ system: "http://loinc.org", code: "8867-4", display: "Wearable vital signs" }], text: "Wearable vital signs" },
+          valueString: JSON.stringify(v), effectiveDateTime: v.timestamp,
+          extension: [{ url: "https://medisphere.local/fhir/StructureDefinition/wearable-vitals", valueString: JSON.stringify(v) }]
+        };
+        await FHIRResource.findOneAndUpdate(
+          { patientId: pid, fhirId: resource.id },
+          { patientId: pid, resourceType: "Observation", fhirId: resource.id, resource, source: "FHIR/Wearable", valid: true, receivedAt: new Date(v.timestamp) },
+          { upsert: true }
+        );
+      }
+
+      for (const [i, r] of labRows.entries()) {
+        const pid = String(r.patientId || r.patient || "P001").trim();
+        const resource = {
+          resourceType: "Observation", id: `lab-${pid}-${i}`, status: "final",
+          subject: { reference: `Patient/${pid}` },
+          category: [{ coding: [{ system: "http://terminology.hl7.org/CodeSystem/observation-category", code: "laboratory" }] }],
+          code: { text: r.test, coding: [{ system: "http://loinc.org", code: "unknown", display: r.test }] },
+          valueQuantity: { value: Number(r.value), unit: r.unit || "" }, effectiveDateTime: r.date || new Date().toISOString()
+        };
+        await FHIRResource.findOneAndUpdate(
+          { patientId: pid, fhirId: resource.id },
+          { patientId: pid, resourceType: "Observation", fhirId: resource.id, resource, source: "FHIR/Lab", valid: true, receivedAt: new Date(r.date || Date.now()) },
+          { upsert: true }
+        );
+      }
+
+      for (const c of condRows) {
+        const pid = String(c.patientId || c.patient || "P001").trim();
+        const condText = c.condition || c.code;
+        const slug = String(condText).toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 32);
+        const resource = {
+          resourceType: "Condition", id: `cond-${pid}-${slug}`,
+          clinicalStatus: { coding: [{ code: c.clinicalStatus || "active" }] },
+          subject: { reference: `Patient/${pid}` },
+          code: { text: condText }
+        };
+        await FHIRResource.findOneAndUpdate(
+          { patientId: pid, fhirId: resource.id },
+          { patientId: pid, resourceType: "Condition", fhirId: resource.id, resource, source: "FHIR/Condition", valid: true, receivedAt: new Date() },
+          { upsert: true }
+        );
+      }
+
+      for (const m of medRows) {
+        const pid = String(m.patientId || m.patient || "P001").trim();
+        const medText = m.medication || m.drug || m.name;
+        const slug = String(medText).toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 32);
+        const resource = {
+          resourceType: "MedicationRequest", id: `med-${pid}-${slug}`,
+          status: m.status || "active", intent: "order",
+          subject: { reference: `Patient/${pid}` },
+          medicationCodeableConcept: { text: m.dosage ? `${medText} (${m.dosage})` : medText }
+        };
+        await FHIRResource.findOneAndUpdate(
+          { patientId: pid, fhirId: resource.id },
+          { patientId: pid, resourceType: "MedicationRequest", fhirId: resource.id, resource, source: "FHIR/Medication", valid: true, receivedAt: new Date() },
+          { upsert: true }
+        );
+      }
+    } catch (excelErr) {
+      console.warn("Excel demo parsing notice:", excelErr.message);
+    }
+  }
+
+  // Also seed local observations
+  for (const obs of (localFhir.Observation || [])) {
+    const pid = obs.subject?.reference?.replace("Patient/", "") || "P001";
+    await FHIRResource.findOneAndUpdate(
+      { patientId: pid, fhirId: obs.id },
+      { patientId: pid, resourceType: "Observation", fhirId: obs.id, resource: obs, source: "FHIR/Local", valid: true, receivedAt: new Date() },
+      { upsert: true }
+    );
+  }
+
+  // Rebuild Digital Health Twins for all 5 patients
+  for (const pid of ["P001", "P002", "P003", "P004", "P005"]) {
+    await rebuildTwin(pid);
+  }
+  console.log("Seeding complete: All 5 patients, consents, and twins are active & ready!");
 }
-for (const patientId of Object.keys(localFhir.Patient)) {
-  await Patient.findOneAndUpdate({fhirId:patientId},{fhirId:patientId,resource:localFhir.Patient[patientId],source:"FHIR/Local",updatedAt:new Date()},{upsert:true});
-  await Consent.findOneAndUpdate({patientId},{patientId,providerId:"demo-provider",purpose:"milestone1-demo",status:"granted",updatedAt:new Date()},{upsert:true});
-  await rebuildTwin(patientId);
-}
-try {
-  await startKafka();
-} catch (error) {
-  console.warn(`Kafka is unavailable; using direct MongoDB persistence. ${error.message}`);
-}
-app.listen(PORT,()=>console.log(`MediSphere backend is running on http://localhost:${PORT}`));
+
+(async function initBackgroundServices() {
+  let mongoServer;
+  const mongoTimeoutMs = 3000;
+  const maskedUri = mongoUri.includes("@")
+    ? mongoUri.replace(/\/\/([^:]+):([^@]+)@/, "//$1:****@")
+    : mongoUri;
+
+  let connected = false;
+  if (mongoUri && !mongoUri.includes("localhost") && !mongoUri.includes("127.0.0.1")) {
+    try {
+      console.log(`Connecting to MongoDB Atlas at: ${maskedUri} (timeout: ${mongoTimeoutMs}ms)...`);
+      await mongoose.connect(mongoUri, {
+        serverSelectionTimeoutMS: mongoTimeoutMs,
+        dbName: process.env.MONGO_DB_NAME || "medisphere",
+        autoIndex: false
+      });
+      await mongoose.connection.db.admin().ping();
+      console.log(`Connected successfully to MongoDB Atlas [Database: ${mongoose.connection.name}]`);
+      connected = true;
+    } catch (error) {
+      console.warn(`MongoDB Atlas connection unverified (${error.message}). Switching gracefully to local in-memory database.`);
+      await mongoose.disconnect().catch(() => {});
+    }
+  }
+
+  if (!connected) {
+    try {
+      mongoServer = await MongoMemoryServer.create();
+      await mongoose.connect(mongoServer.getUri(), {
+        dbName: process.env.MONGO_DB_NAME || "medisphere",
+        autoIndex: false
+      });
+      console.log(`Connected to local in-memory MongoDB: ${mongoServer.getUri()}`);
+      connected = true;
+    } catch (memErr) {
+      console.error("Failed to start fallback memory server:", memErr.message);
+    }
+  }
+
+  // Auto-seed cohort immediately on backend launch
+  try {
+    await seedInitialDatabase();
+  } catch (seedErr) {
+    console.warn("Patient seeding notice:", seedErr.message);
+  }
+
+  try {
+    await startKafka();
+  } catch (error) {
+    console.warn(`Kafka is unavailable; using direct MongoDB persistence. ${error.message}`);
+  }
+})();

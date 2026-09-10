@@ -10,7 +10,7 @@ export function PredictionModal({ patientName, twin, onClose }) {
       <div className="modal-card" onClick={e => e.stopPropagation()}>
         <div className="modal-card__head">
           <div>
-            <span className="tag tag--warn" style={{ marginBottom: "6px" }}>Milestone 2 AI Model Preview</span>
+            <span className="tag tag--warn" style={{ marginBottom: "6px" }}>Clinical AI Predictive Analytics</span>
             <h3>TensorFlow Federated — CVD Risk Prediction</h3>
             <p>Patient: {patientName} · Model: CVD-Risk-v3.2 · Federated Round: 47</p>
           </div>
@@ -58,7 +58,7 @@ export function CareplanModal({ patientName, twin, onClose }) {
       <div className="modal-card" onClick={e => e.stopPropagation()}>
         <div className="modal-card__head">
           <div>
-            <span className="tag tag--ok" style={{ marginBottom: "6px" }}>Milestone 4 Precision Careplan</span>
+            <span className="tag tag--ok" style={{ marginBottom: "6px" }}>Precision Care Protocol</span>
             <h3>AI-Generated Personalized Careplan</h3>
             <p>Clinical guideline engine care recommendation for {patientName}</p>
           </div>

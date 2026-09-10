@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
+    "test-db": "node src/scripts/testConnection.js",
+    "seed-atlas": "node src/scripts/seedAtlasDirect.js",
     "import-demo": "node src/scripts/importDemo.js",
     "generate-excel": "node src/scripts/generate_demo_excel.js"
   },

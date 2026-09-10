@@ -3,19 +3,19 @@ const NAV_ITEMS = [
   { key: "pipeline", label: "Data Pipeline", providerOnly: true },
   { key: "patients", label: "Patients", providerOnly: true },
   { key: "twin", label: "Digital Twin", providerOnly: false },
-  { key: "validation", label: "Validation", providerOnly: false },
+  { key: "validation", label: "System Compliance", providerOnly: true },
   { key: "audit", label: "Audit Log", providerOnly: true },
 ];
 
-const FUTURE_ITEMS = [
-  { key: "predictions", label: "Predictions", milestone: 2 },
-  { key: "alerts", label: "Alerts", milestone: 3 },
-  { key: "careplans", label: "Careplans", milestone: 4 },
-  { key: "reports", label: "Reports", milestone: 4 },
+const INTELLIGENCE_ITEMS = [
+  { key: "predictions", label: "Risk Predictions", tag: "AI" },
+  { key: "careplans", label: "Care Protocols", tag: "Clinical" },
+  { key: "reports", label: "Clinical Summary", tag: "Report" },
 ];
 
 export default function Sidebar({ current, onSelect, role }) {
   const isProvider = role === "provider";
+  const visibleNav = NAV_ITEMS.filter((item) => isProvider || !item.providerOnly);
 
   return (
     <aside className="sidebar">
@@ -23,45 +23,41 @@ export default function Sidebar({ current, onSelect, role }) {
         <span className="sidebar__mark">M</span>
         <div>
           <strong>MediSphere</strong>
-          <small>Cognitive Twin</small>
+          <small>{isProvider ? "Clinical Operations" : "Patient Portal"}</small>
         </div>
       </div>
 
       <div className="sidebar__section-label">Main</div>
       <nav className="sidebar__nav">
-        {NAV_ITEMS.map((item) => {
-          const enabled = isProvider || !item.providerOnly;
-          return (
-            <button
-              key={item.key}
-              className={`sidebar__link ${current === item.key ? "is-active" : ""} ${
-                !enabled ? "is-disabled" : ""
-              }`}
-              disabled={!enabled}
-              onClick={() => enabled && onSelect(item.key)}
-              title={!enabled ? "Provider accounts only (RBAC)" : undefined}
-            >
-              <span>{item.label}</span>
-              {!enabled && <em>RBAC</em>}
-            </button>
-          );
-        })}
+        {visibleNav.map((item) => (
+          <button
+            key={item.key}
+            className={`sidebar__link ${current === item.key ? "is-active" : ""}`}
+            onClick={() => onSelect(item.key)}
+          >
+            <span>{item.label}</span>
+          </button>
+        ))}
       </nav>
 
-      <div className="sidebar__section-label">Later milestones</div>
+      <div className="sidebar__section-label">Clinical Intelligence</div>
       <nav className="sidebar__nav">
-        {FUTURE_ITEMS.map((item) => (
-          <button key={item.key} className="sidebar__link is-disabled" disabled title={`Ships in Milestone ${item.milestone}`}>
+        {INTELLIGENCE_ITEMS.map((item) => (
+          <button
+            key={item.key}
+            className={`sidebar__link ${current === item.key ? "is-active" : ""}`}
+            onClick={() => onSelect(item.key)}
+          >
             <span>{item.label}</span>
-            <em>M{item.milestone}</em>
+            <em>{item.tag}</em>
           </button>
         ))}
       </nav>
 
       <div className="sidebar__foundation">
-        <strong>Data foundation</strong>
-        <span>FHIR R4 · Kafka · MongoDB</span>
-        <em>● Milestone 1 of 4</em>
+        <strong>Clinical Data Engine</strong>
+        <span>FHIR R4 · Kafka · MongoDB Atlas</span>
+        <em>● Platform Active &amp; Synced</em>
       </div>
       <div className="sidebar__role">Signed in as {isProvider ? "Clinician" : "Patient"}</div>
     </aside>
