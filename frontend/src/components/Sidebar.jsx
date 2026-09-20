@@ -51,20 +51,18 @@ export default function Sidebar({ current, onSelect, role }) {
                 <button
                   key={item.key}
                   onClick={() => onSelect(item.key)}
-                  className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-[13px] font-medium transition-all duration-150 text-left ${
-                    active
-                      ? "bg-sky-600 text-white shadow-sm shadow-sky-600/30 font-semibold"
-                      : "text-slate-300 hover:text-white hover:bg-slate-800/80"
-                  }`}
+                  className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-[13px] font-medium transition-all duration-150 text-left ${active
+                    ? "bg-sky-600 text-white shadow-sm shadow-sky-600/30 font-semibold"
+                    : "text-slate-300 hover:text-white hover:bg-slate-800/80"
+                    }`}
                 >
                   <div className="flex items-center gap-2.5">
                     <span className="text-[15px]">{item.icon}</span>
                     <span>{item.label}</span>
                   </div>
                   {item.badge && (
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                      active ? "bg-white/20 text-white" : "bg-sky-500/20 text-sky-300"
-                    }`}>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${active ? "bg-white/20 text-white" : "bg-sky-500/20 text-sky-300"
+                      }`}>
                       {item.badge}
                     </span>
                   )}
@@ -86,22 +84,20 @@ export default function Sidebar({ current, onSelect, role }) {
                 <button
                   key={item.key}
                   onClick={() => onSelect(item.key)}
-                  className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-[13px] font-medium transition-all duration-150 text-left ${
-                    active
-                      ? "bg-sky-600 text-white shadow-sm shadow-sky-600/30 font-semibold"
-                      : "text-slate-300 hover:text-white hover:bg-slate-800/80"
-                  }`}
+                  className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-[13px] font-medium transition-all duration-150 text-left ${active
+                    ? "bg-sky-600 text-white shadow-sm shadow-sky-600/30 font-semibold"
+                    : "text-slate-300 hover:text-white hover:bg-slate-800/80"
+                    }`}
                 >
                   <div className="flex items-center gap-2.5">
                     <span className="text-[15px]">{item.icon}</span>
                     <span>{item.label}</span>
                   </div>
                   <span
-                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
-                      active
-                        ? "bg-white/20 border-white/30 text-white"
-                        : "bg-slate-800 border-slate-700 text-slate-400"
-                    }`}
+                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${active
+                      ? "bg-white/20 border-white/30 text-white"
+                      : "bg-slate-800 border-slate-700 text-slate-400"
+                      }`}
                   >
                     {item.tag}
                   </span>
