@@ -11,11 +11,20 @@ import AuditLog from "./components/AuditLog";
 import PipelinePanel from "./components/PipelinePanel";
 import { PredictionsView, CareplansView, ReportsView } from "./components/IntelligencePanels";
 import Milestone2PredictionScreen from "./components/Milestone2PredictionScreen";
+import WearableMonitoringScreen from "./components/WearableMonitoringScreen";
+import MobileSensorScreen from "./components/MobileSensorScreen";
 import DashboardHub from "./components/DashboardHub";
+import GlobalAlertBanner from "./components/GlobalAlertBanner";
+import ClinicalAlertScreen from "./components/ClinicalAlertScreen";
+import ClinicalRuleEngineScreen from "./components/ClinicalRuleEngineScreen";
 import { api } from "./api";
 
 const VALID_VIEWS = [
   "dashboard",
+  "alerts",
+  "rules",
+  "monitoring",
+  "mobile-sensor",
   "pipeline",
   "patients",
   "twin",
@@ -158,10 +167,14 @@ function Shell({ user, onLogout }) {
   const title =
     {
       dashboard: isProvider ? "Patient 360 Dashboard" : "My Health Dashboard",
-      pipeline: "Data Ingestion Pipeline",
-      patients: "Patients",
-      twin: "Digital Twin",
-      validation: "System Compliance",
+      alerts: "Clinical Alert Center & Escalation Engine",
+      rules: "Clinical Decision Support (CDS) Rule Engine",
+      monitoring: "Wearable Device Integration & Continuous Telemetry",
+      "mobile-sensor": "Mobile Biosensor & Emergency Push Hub",
+      pipeline: "Data Pipeline",
+      patients: "Patient Cohort Management",
+      twin: "Digital Twin Explorer",
+      validation: "FHIR R4 Validation & Compliance",
       audit: "Audit Log",
       predictions: "AI Risk Prediction Engine",
       careplans: "Precision Care Protocol",
@@ -178,6 +191,7 @@ function Shell({ user, onLogout }) {
           role={user.role}
           onLogout={onLogout}
         />
+        <GlobalAlertBanner onNavigate={(v, pid) => navigateTo(v, pid)} selectedPatientId={selectedId} />
         <main className="content">
           {notice && <div className="notice">{notice}</div>}
 
@@ -203,6 +217,37 @@ function Shell({ user, onLogout }) {
                 onNavigate={(v) => navigateTo(v)}
               />
             </>
+          )}
+
+          {view === "alerts" && (
+            <ClinicalAlertScreen
+              selectedPatientId={selectedId || "P002"}
+              onSelectPatient={(pid) => {
+                setSelectedId(pid);
+                openPatient(pid);
+                navigateTo("alerts", pid);
+              }}
+              onNavigate={(v, pid) => navigateTo(v, pid)}
+            />
+          )}
+
+          {view === "rules" && (
+            <ClinicalRuleEngineScreen
+              selectedPatientId={selectedId || "P002"}
+              onNavigate={(v, pid) => navigateTo(v, pid)}
+            />
+          )}
+
+          {view === "monitoring" && (
+            <WearableMonitoringScreen
+              selectedPatientId={selectedId || "P002"}
+              onSelectPatient={(pid) => {
+                setSelectedId(pid);
+                openPatient(pid);
+                navigateTo("monitoring", pid);
+              }}
+              onNavigate={(v) => navigateTo(v)}
+            />
           )}
 
           {view === "pipeline" && isProvider && (
@@ -251,6 +296,8 @@ function Shell({ user, onLogout }) {
               patientName={currentPatient?.name || twin?.patientId}
             />
           )}
+
+          {view === "mobile-sensor" && <MobileSensorScreen />}
         </main>
       </div>
     </div>
@@ -258,6 +305,25 @@ function Shell({ user, onLogout }) {
 }
 
 export default function App() {
+  const [hash, setHash] = useState(() => (window.location.hash || "").replace(/^#\/?/, ""));
+
+  useEffect(() => {
+    const onHashChange = () => {
+      setHash((window.location.hash || "").replace(/^#\/?/, ""));
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
+  if (
+    hash.startsWith("mobile-sensor") ||
+    hash.startsWith("mobile") ||
+    hash.startsWith("sensor") ||
+    hash.startsWith("phone")
+  ) {
+    return <MobileSensorScreen />;
+  }
+
   const { user, ready, logout } = useAuth();
 
   if (!ready || !user) {

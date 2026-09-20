@@ -20,10 +20,55 @@ import axios from "axios";
 import { Kafka } from "kafkajs";
 import xlsx from "xlsx";
 import fs from "fs";
+import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
 import { Fhir } from "fhir";
 import flService from "./services/federatedLearning.js";
+import wearableService from "./services/wearableIntegrationService.js";
+import anomalyService from "./services/anomalyDetectionService.js";
+import alertService from "./services/alertEngineService.js";
+import clinicalRuleEngine from "./services/clinicalRuleEngineService.js";
+import mobileNotificationService from "./services/mobileNotificationService.js";
+
+// Connect Stream Anomaly Detection to Real-Time Clinical Alert Engine & CDS Rule Engine
+anomalyService.on("anomalyDetected", (anomalyRecord) => {
+  try {
+    const alert = alertService.processAnomalyEvent(anomalyRecord);
+    clinicalRuleEngine.evaluateTelemetry(anomalyRecord.currentVitals || {}, {
+      patientId: anomalyRecord.patientId
+    });
+    if (alert) {
+      mobileNotificationService.dispatchAlertNotification(alert, "StreamAnomalyPipeline");
+    }
+  } catch (err) {
+    console.error("AlertEngine/RuleEngine processing error:", err);
+  }
+});
+
+// When AlertEngine generates or escalates an alert, dispatch mobile notification
+alertService.on("alertDispatched", (alert) => {
+  try {
+    mobileNotificationService.dispatchAlertNotification(alert, "ClinicalAlertEngine");
+  } catch (err) {
+    console.error("Mobile notification dispatch error:", err);
+  }
+});
+
+// Synchronize mobile notification Acknowledge/Escalate back to AlertEngine
+mobileNotificationService.on("notificationUpdated", (notif) => {
+  try {
+    if (notif.alertId && alertService.alerts.has(notif.alertId)) {
+      if (notif.status === "ACKNOWLEDGED") {
+        alertService.acknowledgeAlert(notif.alertId, notif.acknowledgedBy || "Dr. Evelyn Reed, MD");
+      } else if (notif.status === "ESCALATED") {
+        alertService.escalateAlert(notif.alertId, notif.escalatedReason || "Mobile Push Escalation to ICU");
+      }
+    }
+  } catch (err) {
+    console.error("Notification sync to AlertEngine error:", err);
+  }
+});
 
 const fhirEngine = new Fhir();
 
@@ -35,7 +80,7 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 const PORT = Number(process.env.PORT || 4000);
 const mongoUri = process.env.MONGO_URI || "mongodb://localhost:27017/medisphere";
 
-app.listen(PORT, () => console.log(`MediSphere backend is running on http://localhost:${PORT}`));
+app.listen(PORT, "0.0.0.0", () => console.log(`MediSphere backend is running on http://0.0.0.0:${PORT}`));
 
 mongoose.connection.on("error", (err) => {
   console.warn("MongoDB connection event notice:", err.message);
@@ -522,6 +567,34 @@ app.post(["/fhir/R4/:resourceType", "/fhir/:resourceType"],requireFhirBearer(tru
 
 app.get("/api/health", (req,res)=>res.json({ok:true,service:"MediSphere Digital Twin Platform"}));
 
+app.get("/api/system/network-info", (req, res) => {
+  const interfaces = os.networkInterfaces();
+  const addresses = [];
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name] || []) {
+      if (iface.family === "IPv4" && !iface.internal) {
+        addresses.push({ interface: name, address: iface.address });
+      }
+    }
+  }
+  // Sort Wi-Fi / Hotspot first if available, then Ethernet
+  addresses.sort((a, b) => {
+    const aWifi = /wi-fi|wlan|wireless|hotspot/i.test(a.interface);
+    const bWifi = /wi-fi|wlan|wireless|hotspot/i.test(b.interface);
+    if (aWifi && !bWifi) return -1;
+    if (!aWifi && bWifi) return 1;
+    return 0;
+  });
+
+  const primaryIp = addresses[0]?.address || "localhost";
+  res.json({
+    primaryIp,
+    addresses,
+    port: 5173,
+    mobileSensorUrl: `http://${primaryIp}:5173/#/mobile-sensor`
+  });
+});
+
 app.post("/api/auth/login",(req,res)=>{
   const {username="demo",role="provider"} = req.body || {};
   const safeRole = ["admin","provider","patient"].includes(role) ? role : "provider";
@@ -581,7 +654,16 @@ async function publishFhirToKafka(resource, stage, actor="system", shouldRebuild
     await persistFhirResource(envelope, shouldRebuild);
     return;
   }
-  await producer.send({topic, messages:[{key:patientId, value:JSON.stringify(envelope)}]});
+  try {
+    await Promise.race([
+      producer.send({topic, messages:[{key:patientId, value:JSON.stringify(envelope)}]}),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Kafka send timeout")), 1500))
+    ]);
+  } catch (kErr) {
+    console.warn("Kafka publish event note, saving directly to local persistence:", kErr.message);
+    kafkaReady = false;
+    await persistFhirResource(envelope, shouldRebuild);
+  }
 }
 
 async function persistFhirResource({resource, stage}, shouldRebuild = true) {
@@ -1209,8 +1291,441 @@ app.get("/api/validation/milestone2", auth, (req, res) => {
   res.json(flService.getMilestone2Validation());
 });
 
-app.post("/api/wearables/vitals",auth,async(req,res)=>{
-  return res.status(308).json({message:"Use POST /api/collect/wearable",pipeline:["COLLECT","FHIR","KAFKA","MONGODB"]});
+// ==============================================================================
+// Milestone 3: Wearable Device Integration & Continuous Telemetry API
+// ==============================================================================
+app.get("/api/wearables/devices/:patientId?", (req, res) => {
+  const token = getBearer(req);
+  let user = null;
+  if (token) {
+    try {
+      user = jwt.verify(token, process.env.JWT_SECRET || "change-me-in-production");
+    } catch {}
+  }
+  const patientId = req.params.patientId || req.query.patientId || "P002";
+  if (user && user.role === "patient" && user.sub !== patientId) {
+    return res.status(403).json({ message: "RBAC denied: patient access restricted to self" });
+  }
+  const devices = wearableService.getPatientDevices(patientId);
+  res.json({ patientId, devices });
+});
+
+app.post("/api/wearables/pair", auth, roleGuard("admin", "provider"), async (req, res) => {
+  try {
+    const device = wearableService.pairDevice(req.body);
+    await audit(req.user.sub, req.user.role, "WEARABLE_DEVICE_PAIRED", device.patientId, "SUCCESS", {
+      deviceId: device.deviceId,
+      model: device.deviceModel
+    });
+    res.status(201).json({ success: true, device });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+app.post("/api/wearables/stream", async (req, res) => {
+  const token = getBearer(req);
+  let actor = "WEARABLE_DEVICE";
+  let role = "device";
+  if (token) {
+    try {
+      const u = jwt.verify(token, process.env.JWT_SECRET || "change-me-in-production");
+      actor = u.sub;
+      role = u.role;
+    } catch {}
+  }
+
+  const validation = wearableService.validateTelemetryPayload(req.body);
+  if (!validation.isValid) {
+    return res.status(422).json({
+      success: false,
+      message: "Physiological vitals range validation failed",
+      errors: validation.errors
+    });
+  }
+
+  const { data } = validation;
+  const fhirObservation = wearableService.buildFhirObservation(data);
+  wearableService.recordTelemetryBuffer(data.patientId, data);
+
+  // Send to Kafka / FHIR persistence
+  await publishFhirToKafka(fhirObservation, "WEARABLE_STREAM", actor, true);
+
+  // Process real-time Kafka Streams Anomaly Detection (Sliding Window 20-samples + AFib Multi-Model)
+  const anomalyEvaluation = anomalyService.processTelemetryEvent(data);
+  if (anomalyEvaluation.isAnomaly && anomalyEvaluation.anomalyRecord) {
+    try {
+      if (kafkaReady) {
+        await producer.send({
+          topic: "vital-anomalies",
+          messages: [{
+            key: data.patientId,
+            value: JSON.stringify(anomalyEvaluation.anomalyRecord)
+          }]
+        });
+      }
+    } catch (kErr) {
+      console.warn("Kafka vital-anomalies dispatch notice:", kErr.message);
+    }
+  }
+
+  await audit(actor, role, "WEARABLE_TELEMETRY_INGESTED", data.patientId, "SUCCESS", {
+    hr: data.heartRate,
+    spo2: data.spo2,
+    bp: `${data.systolic || "--"}/${data.diastolic || "--"}`,
+    deviceId: data.deviceId,
+    sqi: data.signalQuality,
+    isAnomaly: anomalyEvaluation.isAnomaly,
+    anomalyType: anomalyEvaluation.classification?.type
+  });
+
+  res.status(201).json({
+    success: true,
+    message: "Wearable telemetry ingested, evaluated for stream anomalies, and routed to Kafka stream",
+    pipeline: [
+      "WEARABLE_SENSOR_TELEMETRY",
+      "PHYSIOLOGICAL_RANGE_VALIDATION (PASSED)",
+      "KAFKA_STREAM_INGESTION (wearable-vitals)",
+      "SLIDING_WINDOW_PROCESSOR (20-sample window)",
+      `ANOMALY_DETECTOR (${anomalyEvaluation.isAnomaly ? "ANOMALY_DETECTED: " + anomalyEvaluation.classification.type : "NORMAL_SINUS"})`,
+      ...(anomalyEvaluation.isAnomaly ? ["KAFKA_ANOMALIES_TOPIC (vital-anomalies)", "CARDIOLOGIST_SLA_DISPATCH (<= 3.2 min)"] : []),
+      "FHIR_R4_OBSERVATION_MAPPING",
+      "DIGITAL_HEALTH_TWIN_SYNC"
+    ],
+    telemetry: data,
+    anomaly: anomalyEvaluation,
+    fhirObservation
+  });
+});
+
+app.get("/api/wearables/telemetry/:patientId?", (req, res) => {
+  const token = getBearer(req);
+  let user = null;
+  if (token) {
+    try {
+      user = jwt.verify(token, process.env.JWT_SECRET || "change-me-in-production");
+    } catch {}
+  }
+  const patientId = req.params.patientId || req.query.patientId || "P002";
+  if (user && user.role === "patient" && user.sub !== patientId) {
+    return res.status(403).json({ message: "RBAC denied: patient access restricted to self" });
+  }
+  const history = wearableService.getTelemetryHistory(patientId);
+  res.json({ patientId, history });
+});
+
+app.post("/api/wearables/simulate", async (req, res) => {
+  const token = getBearer(req);
+  let actor = "CLINICAL_SIMULATOR";
+  let role = "provider";
+  if (token) {
+    try {
+      const u = jwt.verify(token, process.env.JWT_SECRET || "change-me-in-production");
+      actor = u.sub;
+      role = u.role;
+    } catch {}
+  }
+
+  const { patientId = "P002", scenario = "normal" } = req.body || {};
+  const simulated = wearableService.generateSimulatedTelemetry(patientId, scenario);
+  
+  const validation = wearableService.validateTelemetryPayload(simulated);
+  const fhirObservation = wearableService.buildFhirObservation(validation.data);
+  wearableService.recordTelemetryBuffer(patientId, validation.data);
+
+  await publishFhirToKafka(fhirObservation, "WEARABLE_SIMULATOR", actor, true);
+
+  // Run Kafka Streams Anomaly Detection on simulated stream
+  const anomalyEvaluation = anomalyService.processTelemetryEvent(validation.data);
+  if (anomalyEvaluation.isAnomaly && anomalyEvaluation.anomalyRecord) {
+    try {
+      if (kafkaReady) {
+        await producer.send({
+          topic: "vital-anomalies",
+          messages: [{
+            key: patientId,
+            value: JSON.stringify(anomalyEvaluation.anomalyRecord)
+          }]
+        });
+      }
+    } catch (kErr) {
+      console.warn("Kafka vital-anomalies dispatch notice:", kErr.message);
+    }
+  }
+
+  await audit(actor, role, "WEARABLE_SIMULATED_TELEMETRY", patientId, "SUCCESS", {
+    scenario,
+    hr: validation.data.heartRate,
+    rhythm: validation.data.rhythmStatus,
+    isAnomaly: anomalyEvaluation.isAnomaly,
+    anomalyType: anomalyEvaluation.classification?.type
+  });
+
+  res.json({
+    success: true,
+    scenario,
+    telemetry: validation.data,
+    anomaly: anomalyEvaluation,
+    fhirObservation
+  });
+});
+
+app.get("/api/wearables/config", auth, (req, res) => {
+  res.json(wearableService.getCloudApiConfig());
+});
+
+app.post("/api/wearables/config", auth, roleGuard("admin", "provider"), (req, res) => {
+  const updated = wearableService.updateCloudApiConfig(req.body);
+  res.json({ success: true, config: updated });
+});
+
+// --- KAFKA STREAMS ANOMALY DETECTION API (Milestone 3 Task 2) ---
+
+app.get("/api/anomalies/stream/:patientId?", (req, res) => {
+  const patientId = req.params.patientId || req.query.patientId || "P002";
+  const state = anomalyService.getPatientStreamState(patientId);
+  res.json({
+    success: true,
+    ...state
+  });
+});
+
+app.get("/api/anomalies/stats", (req, res) => {
+  const stats = anomalyService.getEngineStats();
+  res.json({
+    success: true,
+    engine: stats
+  });
+});
+
+app.post("/api/anomalies/evaluate", (req, res) => {
+  const evaluation = anomalyService.processTelemetryEvent(req.body || {});
+  res.json({
+    success: true,
+    evaluation
+  });
+});
+
+// --- CLINICAL ALERT ENGINE & ESCALATION API (Milestone 3 Task 3) ---
+
+app.get("/api/alerts", (req, res) => {
+  const { patientId, status, severity, limit } = req.query;
+  const alerts = alertService.getAlerts({ patientId, status, severity, limit });
+  res.json({ success: true, count: alerts.length, alerts });
+});
+
+app.get("/api/alerts/active", (req, res) => {
+  const patientId = req.query.patientId || null;
+  const activeAlerts = alertService.getActiveAlerts(patientId);
+  res.json({ success: true, count: activeAlerts.length, alerts: activeAlerts });
+});
+
+app.get("/api/alerts/stats", (req, res) => {
+  const stats = alertService.getAlertStats();
+  res.json({ success: true, stats });
+});
+
+app.post("/api/alerts/:alertId/acknowledge", (req, res) => {
+  try {
+    const { clinician = "Dr. Evelyn Reed, MD" } = req.body || {};
+    const alert = alertService.acknowledgeAlert(req.params.alertId, clinician);
+    res.json({ success: true, message: `Alert ${req.params.alertId} acknowledged by ${clinician}`, alert });
+  } catch (err) {
+    res.status(404).json({ success: false, message: err.message });
+  }
+});
+
+app.post("/api/alerts/:alertId/resolve", (req, res) => {
+  try {
+    const { resolutionNotes, clinician = "Dr. Evelyn Reed, MD" } = req.body || {};
+    const alert = alertService.resolveAlert(req.params.alertId, resolutionNotes, clinician);
+    res.json({ success: true, message: `Alert ${req.params.alertId} resolved`, alert });
+  } catch (err) {
+    res.status(404).json({ success: false, message: err.message });
+  }
+});
+
+app.post("/api/alerts/:alertId/escalate", (req, res) => {
+  try {
+    const { reason } = req.body || {};
+    const alert = alertService.escalateAlert(req.params.alertId, reason);
+    res.json({ success: true, message: `Alert ${req.params.alertId} escalated to Code Team`, alert });
+  } catch (err) {
+    res.status(404).json({ success: false, message: err.message });
+  }
+});
+
+app.post("/api/alerts/simulate", async (req, res) => {
+  const { patientId = "P002", scenario = "afib_episode" } = req.body || {};
+  const simulated = wearableService.generateSimulatedTelemetry(patientId, scenario);
+  const validation = wearableService.validateTelemetryPayload(simulated);
+  wearableService.recordTelemetryBuffer(patientId, validation.data);
+  const anomalyEvaluation = anomalyService.processTelemetryEvent(validation.data);
+
+  let alert = null;
+  if (anomalyEvaluation.isAnomaly && anomalyEvaluation.anomalyRecord) {
+    alert = alertService.processAnomalyEvent(anomalyEvaluation.anomalyRecord);
+  } else {
+    alert = alertService.processAnomalyEvent({
+      anomalyId: `ANOM-SIM-${patientId}-${Date.now()}`,
+      patientId,
+      type: "POSSIBLE_AFIB",
+      condition: "Possible Atrial Fibrillation (Acute Tachyarrhythmia)",
+      severity: "CRITICAL",
+      confidence: 0.89,
+      zScore: 3.2,
+      spikeDelta: 71,
+      rmssd: 86.4,
+      currentVitals: validation.data
+    });
+  }
+
+  res.json({
+    success: true,
+    message: `Alert triggered for patient ${patientId} under scenario: ${scenario}`,
+    alert,
+    anomaly: anomalyEvaluation
+  });
+});
+
+// --- CLINICAL DECISION SUPPORT (CDS) RULE ENGINE API ---
+
+app.get("/api/clinical-rules", (req, res) => {
+  const { category, severity, enabled } = req.query;
+  const rules = clinicalRuleEngine.getRules({ category, severity, enabled });
+  res.json({ success: true, count: rules.length, rules });
+});
+
+app.get("/api/clinical-rules/stats", (req, res) => {
+  const stats = clinicalRuleEngine.getEngineStats();
+  res.json({ success: true, stats });
+});
+
+app.get("/api/clinical-rules/audit-log", (req, res) => {
+  const limit = req.query.limit || 50;
+  const audit = clinicalRuleEngine.getEvaluationAuditLog(limit);
+  res.json({ success: true, count: audit.length, audit });
+});
+
+app.post("/api/clinical-rules", (req, res) => {
+  try {
+    const newRule = clinicalRuleEngine.createRule(req.body || {});
+    res.status(201).json({ success: true, message: `Rule ${newRule.ruleId} registered successfully`, rule: newRule });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+app.post("/api/clinical-rules/evaluate", (req, res) => {
+  const { telemetry = {}, patientContext = {} } = req.body || {};
+  const evaluation = clinicalRuleEngine.evaluateTelemetry(telemetry, patientContext);
+  
+  // If CRITICAL or EMERGENCY rules matched, auto-dispatch mobile notification
+  if (evaluation.isActionRequired && (evaluation.highestSeverity === "EMERGENCY" || evaluation.highestSeverity === "CRITICAL" || evaluation.highestSeverity === "HIGH")) {
+    const primaryRule = evaluation.matchedRules[0];
+    mobileNotificationService.dispatchAlertNotification({
+      alertId: evaluation.evaluationId,
+      patientId: evaluation.patientId,
+      patientName: evaluation.patientName,
+      severity: evaluation.highestSeverity,
+      condition: primaryRule.name,
+      currentVitals: evaluation.vitalsEvaluated,
+      slaMinutes: primaryRule.slaMinutes || 3.2,
+      physicianName: primaryRule.physicianName,
+      targetRole: primaryRule.targetRole,
+      orderSet: evaluation.generatedOrderSets
+    }, "RuleEngineEvaluation");
+  }
+
+  res.json({ success: true, evaluation });
+});
+
+app.post("/api/clinical-rules/reset-defaults", (req, res) => {
+  const result = clinicalRuleEngine.resetDefaults();
+  res.json({ success: true, ...result });
+});
+
+app.get("/api/clinical-rules/:ruleId", (req, res) => {
+  const rule = clinicalRuleEngine.getRuleById(req.params.ruleId);
+  if (!rule) {
+    return res.status(404).json({ success: false, message: `Rule ${req.params.ruleId} not found` });
+  }
+  res.json({ success: true, rule });
+});
+
+app.put("/api/clinical-rules/:ruleId", (req, res) => {
+  try {
+    const updated = clinicalRuleEngine.updateRule(req.params.ruleId, req.body || {});
+    res.json({ success: true, message: `Rule ${req.params.ruleId} updated`, rule: updated });
+  } catch (err) {
+    res.status(404).json({ success: false, message: err.message });
+  }
+});
+
+app.delete("/api/clinical-rules/:ruleId", (req, res) => {
+  try {
+    const result = clinicalRuleEngine.deleteRule(req.params.ruleId);
+    res.json(result);
+  } catch (err) {
+    res.status(404).json({ success: false, message: err.message });
+  }
+});
+
+app.post("/api/clinical-rules/:ruleId/toggle", (req, res) => {
+  try {
+    const rule = clinicalRuleEngine.toggleRule(req.params.ruleId);
+    res.json({ success: true, message: `Rule ${req.params.ruleId} is now ${rule.enabled ? "ACTIVE" : "DISABLED"}`, rule });
+  } catch (err) {
+    res.status(404).json({ success: false, message: err.message });
+  }
+});
+
+// --- MOBILE PUSH & EMERGENCY NOTIFICATIONS API ---
+
+app.get("/api/notifications", (req, res) => {
+  const { recipient, patientId, status, limit } = req.query;
+  const list = mobileNotificationService.getNotifications({ recipient, patientId, status, limit });
+  res.json({ success: true, count: list.length, notifications: list });
+});
+
+app.get("/api/notifications/stats", (req, res) => {
+  const stats = mobileNotificationService.getNotificationStats();
+  res.json({ success: true, stats });
+});
+
+app.get("/api/notifications/subscriptions", (req, res) => {
+  const devices = mobileNotificationService.getSubscriptions();
+  res.json({ success: true, count: devices.length, devices });
+});
+
+app.post("/api/notifications/subscribe", (req, res) => {
+  const device = mobileNotificationService.registerDevice(req.body || {});
+  res.json({ success: true, message: "Mobile device registered for priority push notifications", device });
+});
+
+app.post("/api/notifications/send-test", (req, res) => {
+  const notification = mobileNotificationService.sendTestNotification(req.body || {});
+  res.json({ success: true, message: "Test mobile push notification dispatched", notification });
+});
+
+app.post("/api/notifications/:id/acknowledge", (req, res) => {
+  try {
+    const { clinician = "Dr. Evelyn Reed, MD" } = req.body || {};
+    const notification = mobileNotificationService.acknowledgeNotification(req.params.id, clinician);
+    res.json({ success: true, message: `Notification ${req.params.id} acknowledged by ${clinician}`, notification });
+  } catch (err) {
+    res.status(404).json({ success: false, message: err.message });
+  }
+});
+
+app.post("/api/notifications/:id/escalate", (req, res) => {
+  try {
+    const { reason = "Mobile escalation to Code Blue / ICU team" } = req.body || {};
+    const notification = mobileNotificationService.escalateNotification(req.params.id, reason);
+    res.json({ success: true, message: `Notification ${req.params.id} escalated to Code Blue team`, notification });
+  } catch (err) {
+    res.status(404).json({ success: false, message: err.message });
+  }
 });
 
 app.post("/api/consent",auth,async(req,res)=>{
@@ -1415,4 +1930,7 @@ async function seedInitialDatabase() {
   } catch (error) {
     console.warn(`Kafka is unavailable; using direct MongoDB persistence. ${error.message}`);
   }
+
+  console.log("MediSphere background services fully initialized & online.");
 })();
+

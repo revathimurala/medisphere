@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
+import { api } from "../api";
 
 export default function DashboardHub({
   twin,
@@ -9,6 +10,37 @@ export default function DashboardHub({
   isProvider,
   onNavigate
 }) {
+  const [activeAlerts, setActiveAlerts] = useState([]);
+  const [alertStats, setAlertStats] = useState(null);
+
+  const patientId = twin?.patientId || selectedId;
+
+  useEffect(() => {
+    let mounted = true;
+    if (!patientId) return;
+
+    const fetchAlerts = async () => {
+      try {
+        const [alertRes, statsRes] = await Promise.all([
+          api.getActiveAlerts(patientId),
+          api.getAlertStats()
+        ]);
+        if (mounted) {
+          setActiveAlerts(alertRes.alerts || []);
+          setAlertStats(statsRes.stats || null);
+        }
+      } catch {
+        // silent fallback
+      }
+    };
+
+    fetchAlerts();
+    const interval = setInterval(fetchAlerts, 4000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [patientId]);
   if (!twin) {
     return (
       <section className="panel twin-panel twin-panel--empty">
@@ -142,6 +174,46 @@ export default function DashboardHub({
           </div>
         </div>
       </div>
+
+      {/* Real-Time Clinical Alert Status Strip */}
+      {activeAlerts.length > 0 ? (
+        <div className="hub-alert-banner hub-alert-banner--active">
+          <div className="hub-alert-banner__content">
+            <span className="hub-alert-banner__badge">🚨 {activeAlerts[0].severity} ALERT</span>
+            <div>
+              <div className="hub-alert-banner__title">{activeAlerts[0].condition}</div>
+              <div className="hub-alert-banner__sub">
+                Target SLA: &le; {activeAlerts[0].slaMinutes} min · Assigned: {activeAlerts[0].physicianName} · Status: <strong>{activeAlerts[0].status}</strong>
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="hub-alert-banner__action"
+            onClick={() => onNavigate?.("alerts", patientId)}
+          >
+            <span>Review CDS Protocol &amp; Claim SLA</span>
+            <span>&rarr;</span>
+          </button>
+        </div>
+      ) : (
+        <div className="hub-alert-banner hub-alert-banner--normal">
+          <div className="hub-alert-banner__content">
+            <span className="hub-alert-banner__dot">●</span>
+            <span className="hub-alert-banner__text">
+              Real-Time Alert Engine Active · On-Call Cardiologist: <strong>Dr. Evelyn Reed, MD</strong> (ON DUTY · Pager: PAGER-CARDIOLOGY-01 · SLA &le; 3.2m)
+            </span>
+          </div>
+          <button
+            type="button"
+            className="hub-alert-banner__btn"
+            onClick={() => onNavigate?.("alerts", patientId)}
+          >
+            <span>Alert Center</span>
+            <span>&rarr;</span>
+          </button>
+        </div>
+      )}
 
       {/* Interactive 4-Option Module Grid */}
       <div className="dashboard-hub__grid">
