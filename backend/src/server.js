@@ -5,6 +5,10 @@ import { connectDB } from "./config/db.js";
 import { startKafka } from "./config/kafka.js";
 import { seedInitialDatabase } from "./services/seedService.js";
 import { persistFhirResource } from "./services/twinService.js";
+import anomalyService from "./services/anomalyDetectionService.js";
+import alertService from "./services/alertEngineService.js";
+import clinicalRuleEngine from "./services/clinicalRuleEngineService.js";
+import mobileNotificationService from "./services/mobileNotificationService.js";
 import masterRouter from "./routes/index.js";
 
 process.on("uncaughtException", (err) => {
@@ -16,6 +20,45 @@ process.on("uncaughtException", (err) => {
 });
 process.on("unhandledRejection", (reason) => {
   console.warn("Background rejection caught:", reason?.message || reason);
+});
+
+// Connect Stream Anomaly Detection to Real-Time Clinical Alert Engine & CDS Rule Engine
+anomalyService.on("anomalyDetected", (anomalyRecord) => {
+  try {
+    const alert = alertService.processAnomalyEvent(anomalyRecord);
+    clinicalRuleEngine.evaluateTelemetry(anomalyRecord.currentVitals || {}, {
+      patientId: anomalyRecord.patientId
+    });
+    if (alert) {
+      mobileNotificationService.dispatchAlertNotification(alert, "StreamAnomalyPipeline");
+    }
+  } catch (err) {
+    console.error("AlertEngine/RuleEngine processing error:", err);
+  }
+});
+
+// When AlertEngine generates or escalates an alert, dispatch mobile notification
+alertService.on("alertDispatched", (alert) => {
+  try {
+    mobileNotificationService.dispatchAlertNotification(alert, "ClinicalAlertEngine");
+  } catch (err) {
+    console.error("Mobile notification dispatch error:", err);
+  }
+});
+
+// Synchronize mobile notification Acknowledge/Escalate back to AlertEngine
+mobileNotificationService.on("notificationUpdated", (notif) => {
+  try {
+    if (notif.alertId && alertService.alerts.has(notif.alertId)) {
+      if (notif.status === "ACKNOWLEDGED") {
+        alertService.acknowledgeAlert(notif.alertId, notif.acknowledgedBy || "Dr. Evelyn Reed, MD");
+      } else if (notif.status === "ESCALATED") {
+        alertService.escalateAlert(notif.alertId, notif.escalatedReason || "Mobile Push Escalation to ICU");
+      }
+    }
+  } catch (err) {
+    console.error("Notification sync to AlertEngine error:", err);
+  }
 });
 
 const app = express();

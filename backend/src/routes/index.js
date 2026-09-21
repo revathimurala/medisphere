@@ -10,6 +10,12 @@ import validationRoutes from "./validationRoutes.js";
 import auditRoutes from "./auditRoutes.js";
 import predictionRoutes from "./predictionRoutes.js";
 import syncRoutes from "./syncRoutes.js";
+import alertRoutes from "./alertRoutes.js";
+import wearableRoutes from "./wearableRoutes.js";
+import anomalyRoutes from "./anomalyRoutes.js";
+import clinicalRuleRoutes from "./clinicalRuleRoutes.js";
+import notificationRoutes from "./notificationRoutes.js";
+import systemRoutes from "./systemRoutes.js";
 
 const masterRouter = express.Router();
 
@@ -33,5 +39,13 @@ masterRouter.use("/api", validationRoutes);
 masterRouter.use("/api", auditRoutes);
 masterRouter.use("/api", predictionRoutes);
 masterRouter.use("/api", syncRoutes);
+
+// Milestone 3 API routes: Alerts, Wearables, Anomalies, CDS Rules, Notifications, System
+masterRouter.use("/api", alertRoutes);
+masterRouter.use("/api", wearableRoutes);
+masterRouter.use("/api", anomalyRoutes);
+masterRouter.use("/api", clinicalRuleRoutes);
+masterRouter.use("/api", notificationRoutes);
+masterRouter.use("/api", systemRoutes);
 
 export default masterRouter;
