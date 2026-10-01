@@ -5,16 +5,118 @@ import FhirInspectorModal from "./FhirInspectorModal";
 import { PredictionModal, CareplanModal } from "./ActionModals";
 import { api } from "../api";
 
-export default function TwinPanel({ twin, onRefresh }) {
+export default function TwinPanel({
+  twin,
+  onRefresh,
+  patients = [],
+  selectedId,
+  onSelectPatient,
+  onBackToDirectory,
+  isProvider = true,
+  role = "provider",
+  onNavigate,
+}) {
   const [activeModal, setActiveModal] = useState(null);
   const [streaming, setStreaming] = useState(false);
   const [streamMsg, setStreamMsg] = useState("");
 
-  if (!twin) {
+  if (!twin || !selectedId) {
+    const list = patients.length > 0 ? patients : [
+      { id: "P001", name: "John Doe", age: 48, gender: "Male", primaryDiagnosis: "Type 2 Diabetes, Hypertension", riskScore: 24.3, riskCategory: "High Risk" },
+      { id: "P002", name: "Jane Roe", age: 52, gender: "Female", primaryDiagnosis: "Atrial Fibrillation, Hypertension", riskScore: 12.6, riskCategory: "Moderate Risk" },
+      { id: "P003", name: "Robert Johnson", age: 61, gender: "Male", primaryDiagnosis: "Coronary Artery Disease", riskScore: 9.4, riskCategory: "Moderate Risk" },
+      { id: "P004", name: "Maria Garcia", age: 39, gender: "Female", primaryDiagnosis: "Metabolic Syndrome", riskScore: 4.2, riskCategory: "Low Risk" },
+      { id: "P005", name: "David Kim", age: 34, gender: "Male", primaryDiagnosis: "Pre-hypertension", riskScore: 3.6, riskCategory: "Low Risk" },
+    ];
+
     return (
-      <section className="panel twin-panel twin-panel--empty">
-        Select a patient and sync them from FHIR to build their digital health twin.
-      </section>
+      <div className="space-y-6">
+        {/* Header Banner */}
+        <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-sky-950 text-white rounded-2xl p-6 shadow-md border border-slate-700/60">
+          <div className="flex items-center justify-between flex-wrap gap-4">
+            <div>
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-sky-500/20 text-sky-300 border border-sky-500/30 mb-2">
+                🧬 3D Dynamic Organ Simulation
+              </div>
+              <h2 className="text-2xl font-bold tracking-tight text-white m-0">
+                Digital Health Twin Directory
+              </h2>
+              <p className="text-sm text-slate-300 mt-1 max-w-2xl">
+                Explore interactive 3D human anatomy with multi-organ physiological simulations, live Kafka wearable vital streaming, and FHIR R4 medical record synchronization. Select a patient to load their twin.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="px-4 py-2 rounded-xl bg-slate-800/80 border border-slate-700 text-xs">
+                <span className="text-slate-400 block">Twins Built</span>
+                <strong className="text-lg font-bold text-white">{list.length} Ready</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Patient Selection Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {list.map((p) => {
+            const isHigh = (p.riskCategory || "").toLowerCase().includes("high") || (p.riskScore || 0) >= 20;
+            return (
+              <div
+                key={p.id}
+                className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm hover:shadow-md hover:border-sky-300 transition-all flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-sky-500 to-indigo-600 flex items-center justify-center text-white font-bold text-base shadow-sm">
+                        {p.name?.split(" ").map((n) => n[0]).join("").slice(0, 2) || p.id}
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-slate-900 text-base m-0">{p.name}</h3>
+                        <span className="text-xs text-slate-500 font-mono">ID: {p.id}</span>
+                      </div>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full text-[10.5px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      100% Synced
+                    </span>
+                  </div>
+
+                  <div className="space-y-2 py-2 text-xs text-slate-600 border-y border-slate-100">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400">Demographics:</span>
+                      <strong className="text-slate-700">{p.age || 48} yrs · {p.gender || "Male"}</strong>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400">Primary Diagnosis:</span>
+                      <span className="text-slate-800 font-medium text-right truncate max-w-[180px]">
+                        {p.conditions || p.primaryDiagnosis || "Type 2 Diabetes"}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400">Organ Heatmap:</span>
+                      <span className="font-semibold text-rose-600">Cardiovascular &amp; Renal</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400">CVD 10-Yr Risk:</span>
+                      <span className={`font-bold ${isHigh ? "text-red-600" : "text-slate-700"}`}>
+                        {p.riskScore ? `${p.riskScore}% ` : ""}({p.riskCategory || (isHigh ? "High" : "Standard")})
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-4 mt-2">
+                  <button
+                    onClick={() => onSelectPatient?.(p.id)}
+                    className="w-full py-2.5 px-4 rounded-xl text-xs font-bold text-white bg-sky-600 hover:bg-sky-500 shadow-sm shadow-sky-600/20 transition-all flex items-center justify-center gap-2"
+                  >
+                    <span>Explore 3D Digital Twin</span>
+                    <span>→</span>
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
     );
   }
 
@@ -70,6 +172,32 @@ export default function TwinPanel({ twin, onRefresh }) {
 
   return (
     <section className="panel twin-panel">
+      {/* Top Navigation & Cohort Switcher */}
+      {onBackToDirectory && (
+        <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100 flex-wrap gap-3">
+          <button
+            onClick={onBackToDirectory}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-bold transition-colors"
+          >
+            ← All Patients
+          </button>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500">Switch Twin:</span>
+            <select
+              value={selectedId || twin.patientId}
+              onChange={(e) => onSelectPatient?.(e.target.value)}
+              className="text-xs font-bold bg-slate-100 border border-slate-300 rounded-lg px-2.5 py-1 text-slate-800 focus:outline-none"
+            >
+              {patients.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} ({p.id})
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
+
       {/* Head: Clinical Digital Twin */}
       <div className="twin-panel__head">
         <div>
@@ -120,7 +248,7 @@ export default function TwinPanel({ twin, onRefresh }) {
             Run Prediction
           </button>
           <button className="btn btn--small btn--action" onClick={() => setActiveModal("careplan")}>
-            Create Careplan
+            {isProvider ? "Create Careplan" : "View My Care Plan"}
           </button>
           <button className="btn btn--small" onClick={() => setActiveModal("fhir")}>
             Inspect FHIR JSON
@@ -237,7 +365,12 @@ export default function TwinPanel({ twin, onRefresh }) {
         <CareplanModal
           patientName={patientName}
           twin={twin}
+          isProvider={isProvider}
           onClose={() => setActiveModal(null)}
+          onNavigateToCareplans={() => {
+            setActiveModal(null);
+            onNavigate?.("careplans", twin.patientId);
+          }}
         />
       )}
     </section>

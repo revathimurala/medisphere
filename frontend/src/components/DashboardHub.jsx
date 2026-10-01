@@ -8,7 +8,8 @@ export default function DashboardHub({
   selectedId,
   onSelectPatient,
   isProvider,
-  onNavigate
+  onNavigate,
+  onBackToDirectory
 }) {
   const [activeAlerts, setActiveAlerts] = useState([]);
   const [alertStats, setAlertStats] = useState(null);
@@ -92,7 +93,31 @@ export default function DashboardHub({
       {/* Clinician Cohort Quick Switcher Bar */}
       {isProvider && patients.length > 0 && (
         <div className="hub-cohort-bar">
-          <span className="hub-cohort-bar__lbl">Select Patient Cohort:</span>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            {onBackToDirectory && (
+              <button
+                type="button"
+                onClick={onBackToDirectory}
+                style={{
+                  background: "#ffffff",
+                  border: "1px solid #cbd5e1",
+                  borderRadius: "8px",
+                  padding: "5px 12px",
+                  fontSize: "12px",
+                  fontWeight: 800,
+                  color: "#0284c7",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+                }}
+              >
+                ← All Patients
+              </button>
+            )}
+            <span className="hub-cohort-bar__lbl">Switch Patient:</span>
+          </div>
           <div className="hub-cohort-bar__pills">
             {patients.map((p) => {
               const active = p.id === (selectedId || twin.patientId);

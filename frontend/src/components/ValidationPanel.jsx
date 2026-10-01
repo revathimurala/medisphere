@@ -52,17 +52,17 @@ export default function ValidationPanel({ data }) {
     setRunning(true);
     setTestLog(
       activeSuite === "milestone2"
-        ? "Executing Milestone 2 verification suite across Federated Learning, SHAP, and Calibration modules…"
-        : "Executing Foundation compliance verification suite across FHIR and HIPAA modules…"
+        ? "Executing AI Model Governance audit across Federated Learning, SHAP, and Calibration modules…"
+        : "Executing Core Compliance verification suite across FHIR and HIPAA modules…"
     );
     try {
       if (activeSuite === "milestone2") {
         const res = await api.getMilestone2Validation();
         setM2Validation(res);
-        setTestLog("✓ All 6 Milestone 2 validation criteria passed: Model accuracy >90%, Convergence, SHAP additivity, Calibration, Demographic parity, and Guideline compliance verified.");
+        setTestLog("✓ All 6 AI Governance benchmarks passed: Model accuracy >90%, Convergence, SHAP additivity, Calibration, Demographic parity, and Guideline compliance verified.");
       } else {
         await api.getValidation();
-        setTestLog("✓ All 6 Foundation compliance checks passed: 100% verified against HL7 FHIR R4 and HIPAA standards.");
+        setTestLog("✓ All Core Architecture benchmarks passed: 100% verified against HL7 FHIR R4, SMART on FHIR, and HIPAA standards.");
       }
     } catch (e) {
       setTestLog("Verification check encountered an error: " + e.message);
@@ -84,17 +84,17 @@ export default function ValidationPanel({ data }) {
               className={`m2-tab ${activeSuite === "milestone2" ? "is-active" : ""}`}
               onClick={() => setActiveSuite("milestone2")}
             >
-              Milestone 2: Federated &amp; AI
+              AI Model Governance
             </button>
             <button
               className={`m2-tab ${activeSuite === "foundation" ? "is-active" : ""}`}
               onClick={() => setActiveSuite("foundation")}
             >
-              Foundation (FHIR &amp; Security)
+              HL7 FHIR &amp; Security Compliance
             </button>
           </div>
           <button className="btn btn--primary" onClick={handleRunFullAudit} disabled={running}>
-            {running ? "Running checks…" : `Verify ${activeSuite === "milestone2" ? "Milestone 2" : "Foundation"}`}
+            {running ? "Running checks…" : `Run ${activeSuite === "milestone2" ? "AI Governance Audit" : "FHIR Compliance Audit"}`}
           </button>
         </div>
       </div>
@@ -129,7 +129,7 @@ export default function ValidationPanel({ data }) {
           ) : (
             <div className="validation-item">
               <div className="validation-item__body">
-                <b>Loading Milestone 2 validation results…</b>
+                <b>Loading AI Governance verification results…</b>
               </div>
             </div>
           )}

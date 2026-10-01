@@ -1,17 +1,22 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 
-export default function Milestone2PredictionScreen({ selectedPatientId, onSelectPatient, onNavigate }) {
+export default function Milestone2PredictionScreen({ selectedPatientId, onSelectPatient, onNavigate, onBackToDirectory }) {
   const [activeTab, setActiveTab] = useState("cvd"); // "cvd" | "diabetes" | "federated" | "registry"
   const [stats, setStats] = useState(null);
   const [prediction, setPrediction] = useState(null);
   const [patients, setPatients] = useState([]);
-  const [selectedId, setSelectedId] = useState(selectedPatientId || "P001");
+  const [selectedId, setSelectedId] = useState(selectedPatientId || null);
   const [flStatus, setFlStatus] = useState(null);
   const [registry, setRegistry] = useState([]);
   const [training, setTraining] = useState(false);
   const [actionNotice, setActionNotice] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+
+  // Sync selectedId with prop
+  useEffect(() => {
+    setSelectedId(selectedPatientId || null);
+  }, [selectedPatientId]);
 
   // Load initial data
   useEffect(() => {
@@ -30,6 +35,11 @@ export default function Milestone2PredictionScreen({ selectedPatientId, onSelect
 
   // Load patient prediction whenever selectedId changes
   useEffect(() => {
+    if (!selectedId) {
+      setPrediction(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     api.getPrediction(selectedId)
       .then((data) => setPrediction(data))
@@ -67,8 +77,8 @@ export default function Milestone2PredictionScreen({ selectedPatientId, onSelect
 
   const handleActionClick = (actionId) => {
     if (actionId === "generate_careplan") {
-      setActionNotice("✓ Generating precision careplan protocol based on CVD 24.3% risk model…");
-      setTimeout(() => onNavigate?.("careplans"), 800);
+      setActionNotice(`✓ Opening personalized care protocol for ${prediction?.patientName || selectedId}…`);
+      setTimeout(() => onNavigate?.("careplans", selectedId), 400);
     }
   };
 
@@ -80,12 +90,163 @@ export default function Milestone2PredictionScreen({ selectedPatientId, onSelect
     highRiskLabel: "Require intervention"
   };
 
+  // If no patient is selected, display the Patient Selection Directory
+  if (!selectedId) {
+    const list = patients.length > 0 ? patients : [
+      { id: "P001", name: "John Doe", age: 48, gender: "Male", primaryDiagnosis: "Type 2 Diabetes, Essential Hypertension", riskScore: 24.3, riskCategory: "High Risk", complication: "Nephropathy 18.5%", driver: "HbA1c (+8%), BP (+6%)" },
+      { id: "P002", name: "Jane Roe", age: 52, gender: "Female", primaryDiagnosis: "Atrial Fibrillation, Hypertension", riskScore: 12.6, riskCategory: "Moderate Risk", complication: "Neuropathy 12.0%", driver: "Age (+4%), HbA1c (+3%)" },
+      { id: "P003", name: "Robert Johnson", age: 61, gender: "Male", primaryDiagnosis: "Post-PCI Coronary Artery Disease", riskScore: 9.4, riskCategory: "Moderate Risk", complication: "Nephropathy 8.5%", driver: "Age (+6%), LDL (+2%)" },
+      { id: "P004", name: "Maria Garcia", age: 39, gender: "Female", primaryDiagnosis: "Metabolic Syndrome, Hypertension", riskScore: 4.2, riskCategory: "Low Risk", complication: "Low Risk (<5%)", driver: "Age (+2%), BP (+1%)" },
+      { id: "P005", name: "David Kim", age: 34, gender: "Male", primaryDiagnosis: "Pre-hypertension", riskScore: 3.6, riskCategory: "Low Risk", complication: "Low Risk (<3%)", driver: "Age (+1%), Preserved eGFR" },
+    ];
+
+    return (
+      <div className="space-y-6">
+        {/* Header Banner */}
+        <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white rounded-2xl p-6 shadow-md border border-slate-700/60">
+          <div className="flex items-center justify-between flex-wrap gap-4">
+            <div>
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-purple-500/20 text-purple-300 border border-purple-500/30 mb-2">
+                🧠 Predictive AI &amp; Federated Learning
+              </div>
+              <h2 className="text-2xl font-bold tracking-tight text-white m-0">
+                AI Risk Prediction Directory
+              </h2>
+              <p className="text-sm text-slate-300 mt-1 max-w-2xl">
+                Decentralized TensorFlow Federated risk models, biomarker-driven SHAP clinical explainability, and multi-organ complication trajectory modeling. Select a patient to evaluate their AI risk assessment.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="px-4 py-2 rounded-xl bg-slate-800/80 border border-slate-700 text-xs text-center">
+                <span className="text-slate-400 block">Model Accuracy</span>
+                <strong className="text-lg font-bold text-emerald-400">{pStats.modelAccuracy}</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 3 Metric Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
+            <span className="text-xs font-semibold text-slate-500 block uppercase tracking-wider">Predictions Evaluated</span>
+            <strong className="text-2xl font-bold text-slate-900 mt-1 block">{pStats.riskPredictionsToday}</strong>
+            <span className="text-xs text-slate-400 mt-1 block">Validated on EHR cohorts</span>
+          </div>
+          <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
+            <span className="text-xs font-semibold text-slate-500 block uppercase tracking-wider">Federated Convergence</span>
+            <strong className="text-2xl font-bold text-sky-600 mt-1 block">{pStats.roundLabel}</strong>
+            <span className="text-xs text-slate-400 mt-1 block">3 Hospital Nodes Active</span>
+          </div>
+          <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
+            <span className="text-xs font-semibold text-slate-500 block uppercase tracking-wider">High Risk Flagged</span>
+            <strong className="text-2xl font-bold text-red-600 mt-1 block">{pStats.highRiskPatients}</strong>
+            <span className="text-xs text-red-500 mt-1 block">{pStats.highRiskLabel}</span>
+          </div>
+        </div>
+
+        {/* Patient Selection Roster Table */}
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+            <h3 className="font-bold text-slate-800 text-base m-0">
+              Select Patient to Run Clinical AI Risk Predictions
+            </h3>
+            <span className="text-xs text-slate-500">
+              Personalized SHAP explainability and 10-year CVD trajectory
+            </span>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200 text-xs uppercase tracking-wider">
+                <tr>
+                  <th className="py-3.5 px-5">Patient</th>
+                  <th className="py-3.5 px-4">Demographics</th>
+                  <th className="py-3.5 px-4">Primary Diagnoses</th>
+                  <th className="py-3.5 px-4">10-Yr CVD Risk</th>
+                  <th className="py-3.5 px-4">Top Risk Driver (SHAP)</th>
+                  <th className="py-3.5 px-5 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {list.map((p) => {
+                  const isHigh = (p.riskCategory || "").toLowerCase().includes("high") || (p.riskScore || 0) >= 20;
+                  return (
+                    <tr
+                      key={p.id}
+                      className="hover:bg-slate-50/80 transition-colors cursor-pointer"
+                      onClick={() => onSelectPatient?.(p.id)}
+                    >
+                      <td className="py-4 px-5">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-purple-500 to-indigo-600 flex items-center justify-center text-white font-bold text-sm shadow-sm">
+                            {p.name?.split(" ").map(n => n[0]).join("").slice(0, 2) || p.id}
+                          </div>
+                          <div>
+                            <div className="font-bold text-slate-900">{p.name}</div>
+                            <div className="text-xs text-slate-500 font-mono">ID: {p.id}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-4 px-4 text-xs">
+                        <div>{p.age || 48} yrs · {p.gender || "Male"}</div>
+                      </td>
+                      <td className="py-4 px-4">
+                        <span className="inline-block text-xs font-medium text-slate-700 max-w-xs truncate">
+                          {p.conditions || p.primaryDiagnosis || "Type 2 Diabetes"}
+                        </span>
+                      </td>
+                      <td className="py-4 px-4">
+                        <span
+                          className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${
+                            isHigh
+                              ? "bg-red-50 text-red-700 border border-red-200"
+                              : "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                          }`}
+                        >
+                          {p.riskScore ? `${p.riskScore}% ` : ""}{p.riskCategory || (isHigh ? "High Risk" : "Standard Risk")}
+                        </span>
+                      </td>
+                      <td className="py-4 px-4 text-xs">
+                        <span className="text-slate-600 font-medium">
+                          {p.driver || "HbA1c (+8%), BP (+6%)"}
+                        </span>
+                      </td>
+                      <td className="py-4 px-5 text-right">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSelectPatient?.(p.id);
+                          }}
+                          className="px-3.5 py-1.5 rounded-lg text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 shadow-sm transition-all"
+                        >
+                          Assess AI Risk →
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="milestone2-screen">
       {/* Top Banner & Eyebrow */}
       <div className="m2-banner">
         <div className="m2-banner__left">
-          <span className="tag tag--milestone2">Milestone 2 · Weeks 3–4</span>
+          {onBackToDirectory && (
+            <button
+              onClick={onBackToDirectory}
+              className="mr-3 px-3 py-1 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-slate-800 text-xs font-bold transition-colors"
+            >
+              ← All Patients
+            </button>
+          )}
+          <span className="tag tag--milestone2">Clinical Predictive AI</span>
           <span className="m2-banner__subtitle">Federated Learning &amp; Risk Models · Privacy-Preserving AI</span>
         </div>
         <div className="m2-banner__right">

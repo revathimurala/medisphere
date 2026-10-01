@@ -7,12 +7,14 @@ import Consent from "../models/Consent.js";
 import FHIRResource from "../models/FHIRResource.js";
 import { localFhir } from "./fhirStore.js";
 import { rebuildTwin } from "./twinService.js";
+import { seedDefaultUsers } from "./userService.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export async function seedInitialDatabase() {
-  console.log("Seeding clinical cohort (P001-P005), consents, and digital twins...");
+  console.log("Seeding clinical cohort (P001-P005), consents, user accounts, and digital twins...");
+  await seedDefaultUsers();
   const defaultPatients = [
     { fhirId: "P001", resource: { resourceType: "Patient", id: "P001", name: [{ family: "Doe", given: ["John"] }], gender: "male", birthDate: "1978-04-12" }, source: "FHIR/Seed" },
     { fhirId: "P002", resource: { resourceType: "Patient", id: "P002", name: [{ family: "Roe", given: ["Jane"] }], gender: "female", birthDate: "1985-09-23" }, source: "FHIR/Seed" },

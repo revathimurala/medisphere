@@ -750,7 +750,7 @@ export default function MobileSensorScreen() {
             className="w-full bg-slate-950 border border-slate-700 text-white font-semibold text-sm rounded-xl p-3 outline-none focus:border-sky-500"
           >
             <option value="P001">John Doe (P001)</option>
-            <option value="P002">★ Sarah Miller (P002) — Milestone 3 Scenario</option>
+            <option value="P002">★ Sarah Miller (P002) — Arrhythmia Scenario</option>
             <option value="P003">David Kumar (P003)</option>
             <option value="P004">Robert Taylor (P004)</option>
             <option value="P005">Elena Rostova (P005)</option>
@@ -820,7 +820,7 @@ export default function MobileSensorScreen() {
               </div>
             </div>
             <span className="text-[10px] bg-sky-950 text-sky-300 border border-sky-800 px-2 py-0.5 rounded-full font-bold">
-              Milestone 3
+              IoT Hub
             </span>
           </div>
 

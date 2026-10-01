@@ -161,28 +161,28 @@ export default function PatientList({
                 </span>
               </span>
 
-              <span style={{ flex: 1.6, display: "flex", justifyContent: "flex-end", gap: "6px" }} onClick={(e) => e.stopPropagation()}>
+              <span style={{ flex: 2.0, display: "flex", justifyContent: "flex-end", gap: "6px" }} onClick={(e) => e.stopPropagation()}>
+                <button
+                  className="btn btn--small btn--primary"
+                  title="Open Patient 360 Dashboard"
+                  onClick={() => onOpen(p.id)}
+                  style={{ fontWeight: 700, background: "#0284c7" }}
+                >
+                  Dashboard →
+                </button>
                 <button
                   className="btn btn--small btn--action-risk"
-                  title="Open AI Risk Prediction & SHAP explainability engine"
+                  title="Open AI Risk Prediction engine"
                   onClick={() => onOpenPredictions ? onOpenPredictions(p.id) : onOpen(p.id)}
                 >
                   ⚡ Risk AI
                 </button>
                 <button
                   className="btn btn--small"
-                  title="Open Digital Health Twin 3D View"
+                  title="Open Digital Health Twin"
                   onClick={() => onOpenTwin ? onOpenTwin(p.id) : onOpen(p.id)}
                 >
                   Twin
-                </button>
-                <button
-                  className="btn btn--small btn--sync"
-                  title="Sync patient data from FHIR R4 store"
-                  onClick={() => sync(p.id)}
-                  disabled={syncingId === p.id}
-                >
-                  {syncingId === p.id ? "…" : "Sync"}
                 </button>
               </span>
             </div>

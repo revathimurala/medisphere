@@ -159,7 +159,7 @@ export default function ClinicalAlertScreen({ selectedPatientId, onSelectPatient
               Clinical Alert Center & Escalation Engine
             </h1>
             <span className="text-xs bg-rose-50 text-rose-700 font-bold border border-rose-200 px-2.5 py-1 rounded-full uppercase tracking-wider">
-              Milestone 3 Task 3 Live
+              STAT Alert Engine
             </span>
           </div>
           <p className="text-sm text-slate-500 mt-1 max-w-3xl">

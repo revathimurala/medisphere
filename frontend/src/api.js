@@ -29,7 +29,10 @@ function unwrap(promise) {
 }
 
 export const api = {
-  login: (username, role) => unwrap(http.post("/auth/login", { username, role })),
+  login: (username, password, role) => unwrap(http.post("/auth/login", { username, password, role })),
+  register: (payload) => unwrap(http.post("/auth/register", payload)),
+  getMe: () => unwrap(http.get("/auth/me")),
+  getDemoCredentials: () => unwrap(http.get("/auth/demo-credentials")),
   getPatients: () => unwrap(http.get("/patients")),
   getTwin: (patientId) => unwrap(http.get(`/twins/${patientId}`)),
   getValidation: () => unwrap(http.get("/validation")),
@@ -87,4 +90,15 @@ export const api = {
   acknowledgeMobileNotification: (id, clinician) => unwrap(http.post(`/notifications/${encodeURIComponent(id)}/acknowledge`, { clinician })),
   escalateMobileNotification: (id, reason) => unwrap(http.post(`/notifications/${encodeURIComponent(id)}/escalate`, { reason })),
   getNetworkInfo: () => unwrap(http.get("/system/network-info")),
+  // Milestone 4: Careplan & Intervention Engine API
+  getCarePlan: (patientId) => unwrap(http.get(`/careplans/${encodeURIComponent(patientId || "")}`)),
+  generateCarePlan: (patientId, options) => unwrap(http.post(`/careplans/generate/${encodeURIComponent(patientId || "")}`, options || {})),
+  getCarePlanGuidelines: (patientId) => unwrap(http.get(`/careplans/${encodeURIComponent(patientId || "")}/guidelines`)),
+  updateCarePlanAdherenceTask: (patientId, taskId, status) => unwrap(http.post(`/careplans/${encodeURIComponent(patientId || "")}/adherence/task`, { taskId, status })),
+  syncWearableAdherence: (patientId, steps, hoursWorn) => unwrap(http.post(`/careplans/${encodeURIComponent(patientId || "")}/adherence/wearable-sync`, { steps, hoursWorn })),
+  getCarePlanOutcomes: (patientId) => unwrap(http.get(`/careplans/${encodeURIComponent(patientId || "")}/outcomes`)),
+  addCarePlanNote: (patientId, noteData) => unwrap(http.post(`/careplans/${encodeURIComponent(patientId || "")}/notes`, noteData)),
+  signCarePlan: (patientId, signData) => unwrap(http.post(`/careplans/${encodeURIComponent(patientId || "")}/sign`, signData)),
+  approveCarePlan: (patientId, signData) => unwrap(http.post(`/careplans/${encodeURIComponent(patientId || "")}/approve`, signData || {})),
+  getCarePlanStats: () => unwrap(http.get("/careplans/stats/overview")),
 };

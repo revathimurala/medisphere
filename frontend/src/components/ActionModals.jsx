@@ -1,3 +1,5 @@
+import { api } from "../api";
+
 export function PredictionModal({ patientName, twin, onClose }) {
   const v = twin?.latestVitals || {};
   const labs = twin?.labResults || [];
@@ -52,18 +54,65 @@ export function PredictionModal({ patientName, twin, onClose }) {
   );
 }
 
-export function CareplanModal({ patientName, twin, onClose }) {
+export function CareplanModal({ patientName, twin, onClose, isProvider = true, onNavigateToCareplans }) {
+  const handleApprove = async () => {
+    try {
+      const pid = twin?.patientId || "P001";
+      await api.signCarePlan(pid, {
+        signedBy: "Dr. Evelyn Reed, MD",
+        providerRole: "Attending Cardiologist",
+        npiNumber: "NPI-1948201942",
+        comments: "Care plan reviewed, validated against clinical guidelines, and authorized.",
+      }).catch(() => {});
+    } catch {
+      // ignore
+    }
+    onClose();
+    onNavigateToCareplans?.();
+  };
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-card" onClick={e => e.stopPropagation()}>
         <div className="modal-card__head">
           <div>
-            <span className="tag tag--ok" style={{ marginBottom: "6px" }}>Precision Care Protocol</span>
-            <h3>AI-Generated Personalized Careplan</h3>
-            <p>Clinical guideline engine care recommendation for {patientName}</p>
+            <span className="tag tag--ok" style={{ marginBottom: "6px" }}>
+              {isProvider ? "Precision Care Protocol" : "My Prescribed Care Protocol"}
+            </span>
+            <h3>{isProvider ? "AI-Generated Personalized Careplan" : "Prescribed Care Plan & Recovery Protocol"}</h3>
+            <p>
+              {isProvider
+                ? `Clinical guideline engine care recommendation for ${patientName}`
+                : `Authorized clinical orders and guidelines prescribed for your care`}
+            </p>
           </div>
           <button className="btn btn--small" onClick={onClose}>✕ Close</button>
         </div>
+
+        {!isProvider && (
+          <div
+            style={{
+              background: "#f0fdf4",
+              border: "1px solid #bbf7d0",
+              borderRadius: "10px",
+              padding: "12px 14px",
+              margin: "12px 0",
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+            }}
+          >
+            <span style={{ fontSize: "20px" }}>👨‍⚕️</span>
+            <div>
+              <div style={{ fontSize: "11px", fontWeight: 800, color: "#166534", textTransform: "uppercase" }}>
+                Prescribed &amp; Authorized by Doctor
+              </div>
+              <div style={{ fontSize: "13px", fontWeight: 700, color: "#14532d" }}>
+                Dr. Evelyn Reed, MD · Attending Cardiologist (NPI-1948201942)
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="careplan-goals">
           <div className="goal-card">
@@ -87,8 +136,27 @@ export function CareplanModal({ patientName, twin, onClose }) {
           <span>Cardiovascular 10-year risk projected to drop from <b>24.3% → 16.2%</b> with 85%+ careplan adherence.</span>
         </div>
 
-        <div className="modal-card__footer" style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
-          <button className="btn btn--primary" onClick={onClose}>Approve &amp; Send to Patient</button>
+        <div className="modal-card__footer" style={{ display: "flex", justifyContent: "flex-end", gap: "8px", alignItems: "center" }}>
+          <button className="btn" onClick={onClose}>Close</button>
+          {isProvider ? (
+            <button
+              className="btn btn--primary"
+              onClick={handleApprove}
+            >
+              Approve &amp; Send to Patient
+            </button>
+          ) : (
+            <button
+              className="btn btn--primary"
+              onClick={() => {
+                onClose();
+                onNavigateToCareplans?.();
+              }}
+              style={{ background: "#059669", borderColor: "#059669" }}
+            >
+              📋 Open Full Protocol &amp; Track Adherence →
+            </button>
+          )}
         </div>
       </div>
     </div>

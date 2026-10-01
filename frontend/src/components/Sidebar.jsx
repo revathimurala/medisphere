@@ -2,7 +2,7 @@ const NAV_ITEMS = [
   { key: "dashboard", label: "Dashboard", icon: "📊", providerOnly: false },
   { key: "alerts", label: "Clinical Alerts", icon: "🚨", providerOnly: false, badge: "STAT" },
   { key: "rules", label: "Clinical Rules", icon: "⚖️", providerOnly: false, badge: "CDS" },
-  { key: "monitoring", label: "Wearable Telemetry", icon: "⌚", providerOnly: false, badge: "M3 Live" },
+  { key: "monitoring", label: "Wearable Telemetry", icon: "⌚", providerOnly: false, badge: "Live" },
   { key: "mobile-sensor", label: "Mobile Biosensor", icon: "📱", providerOnly: false, badge: "Phone" },
   { key: "pipeline", label: "Data Pipeline", icon: "🔄", providerOnly: true },
   { key: "patients", label: "Patients", icon: "👥", providerOnly: true },
@@ -18,7 +18,7 @@ const INTELLIGENCE_ITEMS = [
 ];
 
 export default function Sidebar({ current, onSelect, role }) {
-  const isProvider = role === "provider";
+  const isProvider = role === "provider" || role === "admin";
   const visibleNav = NAV_ITEMS.filter((item) => isProvider || !item.providerOnly);
 
   return (

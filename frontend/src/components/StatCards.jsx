@@ -1,27 +1,27 @@
-export default function StatCards({ patientCount, resourceCount, twinCount }) {
+export default function StatCards({ patientCount, highRiskCount, twinCount }) {
   // Format numbers nicely with realistic scaling or live counts
   const displayPatients = patientCount ? Number(patientCount).toLocaleString() : "5";
-  const displayResources = resourceCount ? `${(resourceCount).toLocaleString()}` : "53";
+  const displayHighRisk = highRiskCount ? Number(highRiskCount).toLocaleString() : "1";
   const displayTwins = twinCount ? Number(twinCount).toLocaleString() : "5";
 
   const cards = [
     {
-      label: "Patients Onboarded",
+      label: "Active Patients",
       value: displayPatients,
-      badge: "+87 this week",
-      caption: "Active FHIR Patient registry"
+      badge: "In Active Care",
+      caption: "Enrolled patient cohort"
     },
     {
-      label: "FHIR Resources",
-      value: displayResources,
-      badge: "Synced from EHR",
-      caption: "Validated FHIR R4 resources"
+      label: "High-Risk Attention",
+      value: displayHighRisk,
+      badge: "STAT Review",
+      caption: "CVD & Diabetic risk > 20%"
     },
     {
-      label: "Twins Created",
+      label: "Active Care Protocols",
       value: displayTwins,
-      badge: "100% coverage",
-      caption: "MongoDB Digital Twin store"
+      badge: "100% Deployed",
+      caption: "Evidence-based clinical pathways"
     },
   ];
 

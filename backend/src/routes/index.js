@@ -16,6 +16,7 @@ import anomalyRoutes from "./anomalyRoutes.js";
 import clinicalRuleRoutes from "./clinicalRuleRoutes.js";
 import notificationRoutes from "./notificationRoutes.js";
 import systemRoutes from "./systemRoutes.js";
+import careplanRoutes from "./careplanRoutes.js";
 
 const masterRouter = express.Router();
 
@@ -47,5 +48,8 @@ masterRouter.use("/api", anomalyRoutes);
 masterRouter.use("/api", clinicalRuleRoutes);
 masterRouter.use("/api", notificationRoutes);
 masterRouter.use("/api", systemRoutes);
+
+// Milestone 4 API routes: Careplan & Intervention Engine
+masterRouter.use("/api", careplanRoutes);
 
 export default masterRouter;

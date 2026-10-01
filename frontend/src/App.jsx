@@ -9,10 +9,12 @@ import TwinPanel from "./components/TwinPanel";
 import ValidationPanel from "./components/ValidationPanel";
 import AuditLog from "./components/AuditLog";
 import PipelinePanel from "./components/PipelinePanel";
-import { PredictionsView, CareplansView, ReportsView } from "./components/IntelligencePanels";
+import { PredictionsView, CareplansView } from "./components/IntelligencePanels";
+import ClinicalSummaryScreen from "./components/ClinicalSummaryScreen";
 import Milestone2PredictionScreen from "./components/Milestone2PredictionScreen";
 import WearableMonitoringScreen from "./components/WearableMonitoringScreen";
 import MobileSensorScreen from "./components/MobileSensorScreen";
+import Milestone4CareplanScreen from "./components/Milestone4CareplanScreen";
 import DashboardHub from "./components/DashboardHub";
 import GlobalAlertBanner from "./components/GlobalAlertBanner";
 import ClinicalAlertScreen from "./components/ClinicalAlertScreen";
@@ -53,7 +55,7 @@ function Shell({ user, onLogout }) {
   const [validation, setValidation] = useState(null);
   const [notice, setNotice] = useState("");
 
-  const isProvider = user.role === "provider";
+  const isProvider = user.role === "provider" || user.role === "admin";
 
   const loadPatients = useCallback(async () => {
     if (!isProvider) return [];
@@ -86,43 +88,54 @@ function Shell({ user, onLogout }) {
   // Browser Navigation: Route changes via real browser URL hash
   const navigateTo = useCallback(
     (nextView, nextPatientId = null) => {
-      const targetId = nextPatientId || selectedId;
-      const targetHash = `#/${nextView}${targetId ? `/${targetId}` : ""}`;
+      const effectivePatientId = isProvider ? nextPatientId : user.username;
+      const targetHash = `#/${nextView}${effectivePatientId ? `/${effectivePatientId}` : ""}`;
       if (window.location.hash !== targetHash) {
         window.location.hash = targetHash;
       } else {
         setView(nextView);
-        if (targetId && targetId !== selectedId) {
-          openPatient(targetId);
+        setSelectedId(effectivePatientId);
+        if (effectivePatientId) {
+          openPatient(effectivePatientId);
+        } else {
+          setTwin(null);
         }
       }
     },
-    [openPatient, selectedId]
+    [openPatient, isProvider, user.username]
   );
 
   // Listen to browser Back / Forward arrow clicks (native browser navigation)
   useEffect(() => {
     const handleHashChange = () => {
       const { view: hView, patientId: hPatientId } = parseHash(window.location.hash);
+      const effectivePatientId = isProvider ? hPatientId : user.username;
       setView(hView);
-      if (hPatientId && hPatientId !== selectedId) {
-        openPatient(hPatientId);
+      setSelectedId(effectivePatientId);
+      if (effectivePatientId) {
+        openPatient(effectivePatientId);
+      } else {
+        setTwin(null);
       }
     };
 
     window.addEventListener("hashchange", handleHashChange);
     return () => window.removeEventListener("hashchange", handleHashChange);
-  }, [openPatient, selectedId]);
+  }, [openPatient, isProvider, user.username]);
 
   useEffect(() => {
     loadPatients().then((data) => {
       if (isProvider && data.length) {
         const { patientId: hashPatientId } = parseHash(window.location.hash);
-        const patientId = hashPatientId || selectedId || data[0].id;
-        setSelectedId(patientId);
-        openPatient(patientId);
-        if (!window.location.hash) {
-          window.location.hash = `#/dashboard/${patientId}`;
+        if (hashPatientId) {
+          setSelectedId(hashPatientId);
+          openPatient(hashPatientId);
+        } else {
+          setSelectedId(null);
+          setTwin(null);
+          if (!window.location.hash) {
+            window.location.hash = `#/dashboard`;
+          }
         }
       }
     });
@@ -133,7 +146,7 @@ function Shell({ user, onLogout }) {
         window.location.hash = `#/dashboard/${user.username}`;
       }
     }
-  }, [isProvider, loadPatients, loadValidation, openPatient, selectedId, user.username]);
+  }, [isProvider, loadPatients, loadValidation, openPatient, user.username]);
 
   useEffect(() => {
     if (!isProvider) return undefined;
@@ -166,24 +179,35 @@ function Shell({ user, onLogout }) {
 
   const title =
     {
-      dashboard: isProvider ? "Patient 360 Dashboard" : "My Health Dashboard",
+      dashboard: selectedId && twin ? (isProvider ? `Patient 360: ${currentPatient?.name || selectedId}` : "My Health Dashboard") : (isProvider ? "Clinical Patient Directory" : "My Health Dashboard"),
+      twin: selectedId && twin ? `Digital Twin: ${currentPatient?.name || selectedId}` : "Digital Health Twin Directory",
+      predictions: selectedId ? `AI Risk Prediction: ${currentPatient?.name || selectedId}` : "AI Risk Prediction Directory",
+      careplans: selectedId ? `Care Protocol: ${currentPatient?.name || selectedId}` : "Precision Care Protocols Directory",
+      reports: selectedId ? `Clinical Summary: ${currentPatient?.name || selectedId}` : "Clinical Health Summary Directory",
+      monitoring: selectedId ? `Wearable Telemetry: ${currentPatient?.name || selectedId}` : "Wearable Telemetry Directory",
       alerts: "Clinical Alert Center & Escalation Engine",
       rules: "Clinical Decision Support (CDS) Rule Engine",
-      monitoring: "Wearable Device Integration & Continuous Telemetry",
       "mobile-sensor": "Mobile Biosensor & Emergency Push Hub",
       pipeline: "Data Pipeline",
       patients: "Patient Cohort Management",
-      twin: "Digital Twin Explorer",
       validation: "FHIR R4 Validation & Compliance",
       audit: "Audit Log",
-      predictions: "AI Risk Prediction Engine",
-      careplans: "Precision Care Protocol",
-      reports: "Clinical Health Summary",
     }[view] || "Dashboard";
 
   return (
     <div className="app">
-      <Sidebar current={view} onSelect={(v) => navigateTo(v)} role={user.role} />
+      <Sidebar
+        current={view}
+        onSelect={(v) => {
+          const directoryViews = ["dashboard", "twin", "predictions", "careplans", "reports", "monitoring"];
+          if (directoryViews.includes(v)) {
+            navigateTo(v, null);
+          } else {
+            navigateTo(v, selectedId);
+          }
+        }}
+        role={user.role}
+      />
       <div className="app__main">
         <TopBar
           title={title}
@@ -200,22 +224,37 @@ function Shell({ user, onLogout }) {
               {isProvider && (
                 <StatCards
                   patientCount={patients.length}
-                  resourceCount={validation?.fhirResourceValidation?.total ?? 0}
+                  highRiskCount={patients.filter((p) => (p.riskCategory || "").toLowerCase().includes("high") || (p.riskScore || 0) >= 20).length}
                   twinCount={patients.filter((p) => p.twinReady).length}
                 />
               )}
-              <DashboardHub
-                twin={twin}
-                patient={currentPatient}
-                patients={patients}
-                selectedId={selectedId}
-                onSelectPatient={(pid) => {
-                  openPatient(pid);
-                  navigateTo("dashboard", pid);
-                }}
-                isProvider={isProvider}
-                onNavigate={(v) => navigateTo(v)}
-              />
+              {selectedId && twin ? (
+                <DashboardHub
+                  twin={twin}
+                  patient={currentPatient}
+                  patients={patients}
+                  selectedId={selectedId}
+                  onSelectPatient={(pid) => {
+                    openPatient(pid);
+                    navigateTo("dashboard", pid);
+                  }}
+                  isProvider={isProvider}
+                  onNavigate={(v) => navigateTo(v, selectedId)}
+                  onBackToDirectory={() => navigateTo("dashboard", null)}
+                />
+              ) : (
+                <PatientList
+                  patients={patients}
+                  selectedId={selectedId}
+                  onOpen={(id) => {
+                    openPatient(id);
+                    navigateTo("dashboard", id);
+                  }}
+                  onOpenTwin={(id) => navigateTo("twin", id)}
+                  onOpenPredictions={(id) => navigateTo("predictions", id)}
+                  onSynced={refreshAfterChange}
+                />
+              )}
             </>
           )}
 
@@ -240,13 +279,18 @@ function Shell({ user, onLogout }) {
 
           {view === "monitoring" && (
             <WearableMonitoringScreen
-              selectedPatientId={selectedId || "P002"}
+              selectedPatientId={selectedId}
               onSelectPatient={(pid) => {
-                setSelectedId(pid);
-                openPatient(pid);
-                navigateTo("monitoring", pid);
+                if (pid) {
+                  setSelectedId(pid);
+                  openPatient(pid);
+                  navigateTo("monitoring", pid);
+                } else {
+                  navigateTo("monitoring", null);
+                }
               }}
-              onNavigate={(v) => navigateTo(v)}
+              onBackToDirectory={() => navigateTo("monitoring", null)}
+              onNavigate={(v, pid) => navigateTo(v, pid || selectedId)}
             />
           )}
 
@@ -265,7 +309,26 @@ function Shell({ user, onLogout }) {
             />
           )}
 
-          {view === "twin" && <TwinPanel twin={twin} onRefresh={refreshAfterChange} />}
+          {view === "twin" && (
+            <TwinPanel
+              twin={twin}
+              patients={patients}
+              selectedId={selectedId}
+              isProvider={isProvider}
+              role={user.role}
+              onSelectPatient={(pid) => {
+                if (isProvider) {
+                  openPatient(pid);
+                  navigateTo("twin", pid);
+                }
+              }}
+              onBackToDirectory={() => {
+                if (isProvider) navigateTo("twin", null);
+              }}
+              onRefresh={refreshAfterChange}
+              onNavigate={(v, pid) => navigateTo(v, isProvider ? pid || selectedId : user.username)}
+            />
+          )}
 
           {view === "validation" && isProvider && <ValidationPanel data={validation} />}
 
@@ -273,27 +336,53 @@ function Shell({ user, onLogout }) {
 
           {view === "predictions" && (
             <Milestone2PredictionScreen
-              selectedPatientId={selectedId || "P001"}
+              selectedPatientId={selectedId}
               onSelectPatient={(pid) => {
-                setSelectedId(pid);
-                openPatient(pid);
-                navigateTo("predictions", pid);
+                if (pid) {
+                  setSelectedId(pid);
+                  openPatient(pid);
+                  navigateTo("predictions", pid);
+                } else {
+                  navigateTo("predictions", null);
+                }
               }}
-              onNavigate={(v) => navigateTo(v)}
+              onBackToDirectory={() => navigateTo("predictions", null)}
+              onNavigate={(v, pid) => navigateTo(v, pid || selectedId)}
             />
           )}
 
           {view === "careplans" && (
-            <CareplansView
-              twin={twin}
-              patientName={currentPatient?.name || twin?.patientId}
+            <Milestone4CareplanScreen
+              selectedPatientId={isProvider ? selectedId : user.username}
+              role={user.role}
+              currentUserId={user.username}
+              onSelectPatient={(pid) => {
+                if (isProvider) {
+                  if (pid) {
+                    setSelectedId(pid);
+                    openPatient(pid);
+                    navigateTo("careplans", pid);
+                  } else {
+                    navigateTo("careplans", null);
+                  }
+                }
+              }}
+              onBackToDirectory={() => {
+                if (isProvider) navigateTo("careplans", null);
+              }}
+              onNavigate={(v, pid) => navigateTo(v, isProvider ? pid || selectedId : user.username)}
             />
           )}
 
           {view === "reports" && (
-            <ReportsView
-              twin={twin}
-              patientName={currentPatient?.name || twin?.patientId}
+            <ClinicalSummaryScreen
+              selectedPatientId={selectedId}
+              onSelectPatient={(pid) => {
+                setSelectedId(pid);
+                openPatient(pid);
+                navigateTo("reports", pid);
+              }}
+              onBackToDirectory={() => navigateTo("reports", null)}
             />
           )}
 

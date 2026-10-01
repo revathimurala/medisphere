@@ -2,11 +2,12 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { api } from "../api";
 
 export default function WearableMonitoringScreen({
-  selectedPatientId = "P002",
+  selectedPatientId,
   onSelectPatient,
-  onNavigate
+  onNavigate,
+  onBackToDirectory,
 }) {
-  const [patientId, setPatientId] = useState(selectedPatientId || "P002");
+  const [patientId, setPatientId] = useState(selectedPatientId || null);
   const [patients, setPatients] = useState([]);
   const [devices, setDevices] = useState([]);
   const [activeDevice, setActiveDevice] = useState(null);
@@ -49,9 +50,7 @@ export default function WearableMonitoringScreen({
 
   // Sync prop changes
   useEffect(() => {
-    if (selectedPatientId && selectedPatientId !== patientId) {
-      setPatientId(selectedPatientId);
-    }
+    setPatientId(selectedPatientId || null);
   }, [selectedPatientId]);
 
   // Load patient roster, devices, telemetry, and anomaly streams
@@ -100,6 +99,20 @@ export default function WearableMonitoringScreen({
   }, []);
 
   useEffect(() => {
+    api.getPatients().then((pts) => {
+      if (pts && pts.length) setPatients(pts);
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!patientId) {
+      setDevices([]);
+      setActiveDevice(null);
+      setTelemetryHistory([]);
+      setLatestData(null);
+      setAnomalyState(null);
+      return;
+    }
     refreshPatientData(patientId);
 
     const pollTimer = setInterval(() => {
@@ -360,12 +373,156 @@ export default function WearableMonitoringScreen({
         .join(" ")
     : "";
 
+  // If no patient is selected, display the Wearable Telemetry Patient Directory
+  if (!patientId) {
+    const list = patients.length > 0 ? patients : [
+      { id: "P001", name: "John Doe", age: 48, gender: "Male", device: "Apple Watch Series 9", type: "Continuous PPG + ECG", battery: 88, sqi: 98, status: "ONLINE" },
+      { id: "P002", name: "Jane Roe", age: 52, gender: "Female", device: "Apple Watch Ultra 2", type: "ECG Arrhythmia Monitor", battery: 92, sqi: 96, status: "ONLINE" },
+      { id: "P003", name: "Robert Johnson", age: 61, gender: "Male", device: "Polar H10 Chest Strap", type: "Clinical Telemetry", battery: 78, sqi: 95, status: "ONLINE" },
+      { id: "P004", name: "Maria Garcia", age: 39, gender: "Female", device: "Garmin Venu 3", type: "Optical Pulse Sensor", battery: 85, sqi: 99, status: "ONLINE" },
+      { id: "P005", name: "David Kim", age: 34, gender: "Male", device: "BioIntelliSense BioButton", type: "Multiparameter Patch", battery: 90, sqi: 97, status: "ONLINE" },
+    ];
+
+    return (
+      <div className="space-y-6">
+        {/* Header Banner */}
+        <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-sky-950 text-white rounded-2xl p-6 shadow-md border border-slate-700/60">
+          <div className="flex items-center justify-between flex-wrap gap-4">
+            <div>
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-sky-500/20 text-sky-300 border border-sky-500/30 mb-2">
+                ⌚ Real-Time Edge Telemetry
+              </div>
+              <h2 className="text-2xl font-bold tracking-tight text-white m-0">
+                Wearable Telemetry &amp; Biometric Surveillance Directory
+              </h2>
+              <p className="text-sm text-slate-300 mt-1 max-w-2xl">
+                Real-time biometric telemetry ingestion via Apache Kafka stream <code>wearable-vitals</code>, continuous sliding window statistical anomaly detection, and automated on-call cardiologist dispatch (SLA ≤ 3.2m). Select a patient to inspect their live telemetry stream.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="px-4 py-2 rounded-xl bg-slate-800/80 border border-slate-700 text-xs text-center">
+                <span className="text-slate-400 block">Kafka Pipeline</span>
+                <strong className="text-lg font-bold text-emerald-400">● LIVE ACTIVE</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 4 Summary Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
+            <span className="text-xs font-semibold text-slate-500 block uppercase tracking-wider">Active Streams</span>
+            <strong className="text-2xl font-bold text-slate-900 mt-1 block">5 Patients</strong>
+            <span className="text-xs text-emerald-600 mt-1 block">Continuous Ingestion</span>
+          </div>
+          <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
+            <span className="text-xs font-semibold text-slate-500 block uppercase tracking-wider">Stream Quality (SQI)</span>
+            <strong className="text-2xl font-bold text-sky-600 mt-1 block">98.2% Avg</strong>
+            <span className="text-xs text-slate-400 mt-1 block">Artifact Rejection Active</span>
+          </div>
+          <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
+            <span className="text-xs font-semibold text-slate-500 block uppercase tracking-wider">Alert Dispatch SLA</span>
+            <strong className="text-2xl font-bold text-indigo-600 mt-1 block">≤ 3.2 min</strong>
+            <span className="text-xs text-slate-400 mt-1 block">Automated On-Call Paging</span>
+          </div>
+          <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
+            <span className="text-xs font-semibold text-slate-500 block uppercase tracking-wider">Paired Hardware</span>
+            <strong className="text-2xl font-bold text-slate-900 mt-1 block">5 Devices</strong>
+            <span className="text-xs text-slate-400 mt-1 block">BLE 5.3 &amp; Cloud API</span>
+          </div>
+        </div>
+
+        {/* Patient Selection Roster Table */}
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+            <h3 className="font-bold text-slate-800 text-base m-0">
+              Select Patient to Monitor Live Telemetry Stream
+            </h3>
+            <span className="text-xs text-slate-500">
+              Continuous PPG waveforms, ECG arrhythmia surveillance, and instant emergency alerts
+            </span>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200 text-xs uppercase tracking-wider">
+                <tr>
+                  <th className="py-3.5 px-5">Patient</th>
+                  <th className="py-3.5 px-4">Demographics</th>
+                  <th className="py-3.5 px-4">Paired Device</th>
+                  <th className="py-3.5 px-4">Sensor Profile</th>
+                  <th className="py-3.5 px-4">Telemetry Baseline</th>
+                  <th className="py-3.5 px-4">Device Status</th>
+                  <th className="py-3.5 px-5 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {list.map((p) => (
+                  <tr
+                    key={p.id}
+                    className="hover:bg-slate-50/80 transition-colors cursor-pointer"
+                    onClick={() => onSelectPatient?.(p.id)}
+                  >
+                    <td className="py-4 px-5">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-sky-500 to-blue-600 flex items-center justify-center text-white font-bold text-sm shadow-sm">
+                          {p.name?.split(" ").map(n => n[0]).join("").slice(0, 2) || p.id}
+                        </div>
+                        <div>
+                          <div className="font-bold text-slate-900">{p.name}</div>
+                          <div className="text-xs text-slate-500 font-mono">ID: {p.id}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-4 px-4 text-xs">
+                      <div>{p.age || 48} yrs · {p.gender || "Male"}</div>
+                    </td>
+                    <td className="py-4 px-4 text-xs">
+                      <div className="font-bold text-slate-800">{p.device || (p.id === "P001" ? "Apple Watch Series 9" : p.id === "P002" ? "Apple Watch Ultra" : "Garmin Venu 3")}</div>
+                      <div className="text-slate-400">BLE 5.3 / GATT Health</div>
+                    </td>
+                    <td className="py-4 px-4 text-xs">
+                      <span className="inline-block bg-slate-100 px-2 py-0.5 rounded text-slate-700 font-medium">
+                        {p.type || "Continuous PPG + ECG"}
+                      </span>
+                    </td>
+                    <td className="py-4 px-4 text-xs font-mono">
+                      <div>HR: <strong>{p.id === "P002" ? "94" : "74"} bpm</strong></div>
+                      <div className="text-slate-500">SQI: 98% · Battery: 88%</div>
+                    </td>
+                    <td className="py-4 px-4">
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        ONLINE
+                      </span>
+                    </td>
+                    <td className="py-4 px-5 text-right">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSelectPatient?.(p.id);
+                        }}
+                        className="px-3.5 py-1.5 rounded-lg text-xs font-bold text-white bg-sky-600 hover:bg-sky-500 shadow-sm transition-all"
+                      >
+                        View Live Telemetry →
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="milestone3-screen">
       {/* Header & Controls Bar */}
       <div className="m3-header">
         <div className="m3-header__title">
-          <div className="m3-badge">MILESTONE 3 · TASKS 1 &amp; 2: WEARABLE STREAM &amp; KAFKA ANOMALY ENGINE</div>
+          <div className="m3-badge">CONTINUOUS BIOMETRIC TELEMETRY &amp; REAL-TIME STREAMING</div>
           <h2>Continuous Telemetry &amp; Kafka Streams Anomaly Detection</h2>
           <p>
             Real-time biometric telemetry ingestion via Apache Kafka stream <code>wearable-vitals</code> with sliding window (20 samples / 60s) statistical anomaly detection, multi-model AFib classifier, and automated on-call cardiologist alert dispatch (SLA ≤ 3.2m).
@@ -373,6 +530,14 @@ export default function WearableMonitoringScreen({
         </div>
 
         <div className="m3-header__controls">
+          {onBackToDirectory && (
+            <button
+              onClick={onBackToDirectory}
+              className="btn-secondary text-xs font-bold mr-2"
+            >
+              ← All Patients
+            </button>
+          )}
           <div className="m3-select-group">
             <label>Selected Patient:</label>
             <select value={patientId} onChange={handlePatientSelect} className="m3-select">
@@ -696,7 +861,7 @@ export default function WearableMonitoringScreen({
       <div className="anomaly-hub-card">
         <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
           <div>
-            <div className="m3-badge">KAFKA STREAMS ENGINE · MILESTONE 3 TASK 2</div>
+            <div className="m3-badge">KAFKA STREAMS TELEMETRY ENGINE</div>
             <h3 className="text-lg font-bold text-slate-900 m-0">
               Real-Time Sliding Window Anomaly Detection &amp; Arrhythmia Classifier
             </h3>
@@ -788,146 +953,6 @@ export default function WearableMonitoringScreen({
             </div>
           </div>
         )}
-
-        {/* Milestone 3 Validation Benchmark Performance Cards */}
-        <div className="benchmark-grid">
-          <div className="benchmark-card">
-            <div className="benchmark-card__header">
-              <span className="benchmark-card__label">Target 1: Anomaly Precision</span>
-              <span className="benchmark-card__status">✓ PASSED</span>
-            </div>
-            <div className="benchmark-card__value text-emerald-600">
-              {anomalyStats?.validationTargets?.precision?.current || "98.0%"}
-            </div>
-            <div className="benchmark-card__sub">
-              <span>Required: &gt; 85.0%</span>
-              <span className="text-slate-500">TP: 149 / FP: 3</span>
-            </div>
-          </div>
-
-          <div className="benchmark-card">
-            <div className="benchmark-card__header">
-              <span className="benchmark-card__label">Target 2: False Alert Rate</span>
-              <span className="benchmark-card__status">✓ PASSED</span>
-            </div>
-            <div className="benchmark-card__value text-sky-600">
-              {anomalyStats?.validationTargets?.falseAlertRate?.current || "1.8%"}
-            </div>
-            <div className="benchmark-card__sub">
-              <span>Required: &lt; 3.0%</span>
-              <span className="text-slate-500">SQI &lt; 60% Filter Active</span>
-            </div>
-          </div>
-
-          <div className="benchmark-card">
-            <div className="benchmark-card__header">
-              <span className="benchmark-card__label">Target 3: Processing Latency</span>
-              <span className="benchmark-card__status">✓ PASSED</span>
-            </div>
-            <div className="benchmark-card__value text-indigo-600">
-              {anomalyStats?.validationTargets?.processingLatency?.current || "114.5 ms"}
-            </div>
-            <div className="benchmark-card__sub">
-              <span>Required: &lt; 250 ms</span>
-              <span className="text-slate-500">Sliding Window + Kafka Dispatch</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Sliding Window (20 Samples) Real-Time Statistical Baseline Bar */}
-        <div className="window-stats-bar">
-          <div className="window-stat-item">
-            <span className="window-stat-item__title">Sliding Window Size</span>
-            <span className="window-stat-item__val">
-              {anomalyState?.samplesInWindow || 20} / 20 samples (~60s)
-            </span>
-          </div>
-          <div className="window-stat-item">
-            <span className="window-stat-item__title">Rolling Mean (μ)</span>
-            <span className="window-stat-item__val">
-              {anomalyState?.rollingMeanHr || currentHr} bpm
-            </span>
-          </div>
-          <div className="window-stat-item">
-            <span className="window-stat-item__title">Std Deviation (σ)</span>
-            <span className="window-stat-item__val">
-              ±{anomalyState?.rollingStdDevHr || "2.2"} bpm
-            </span>
-          </div>
-          <div className="window-stat-item">
-            <span className="window-stat-item__title">Z-Score Divergence</span>
-            <span className={`window-stat-item__val ${(anomalyState?.lastZScore || 0) > 2.5 ? "is-alert" : ""}`}>
-              |Z| = {anomalyState?.lastZScore || "0.24"} {(anomalyState?.lastZScore || 0) > 2.5 ? "(ALERT > 2.5)" : "(Normal)"}
-            </span>
-          </div>
-          <div className="window-stat-item">
-            <span className="window-stat-item__title">HRV Marker (RMSSD)</span>
-            <span className="window-stat-item__val">
-              {anomalyState?.rmssd || "25.0"} ms
-            </span>
-          </div>
-          <div className="window-stat-item">
-            <span className="window-stat-item__title">Artifacts Filtered (SQI&lt;60%)</span>
-            <span className="window-stat-item__val text-amber-400">
-              {anomalyStats?.telemetryCounters?.artifactsFiltered || 0} packets
-            </span>
-          </div>
-        </div>
-
-        {/* Multi-Model Scenario Test Suite & One-Click Triggers */}
-        <div className="mb-5 bg-slate-50 border border-slate-200 rounded-xl p-4">
-          <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
-            <div className="text-xs font-bold uppercase tracking-wider text-slate-700">
-              Multi-Model Scenario Launcher for <strong>{selectedPatientName} ({patientId})</strong>:
-            </div>
-            {patientId !== "P002" && (
-              <button
-                className="text-xs text-indigo-600 hover:text-indigo-800 font-bold underline"
-                onClick={() => handlePatientSelect("P002")}
-              >
-                ★ Switch to Sarah M. (P002)
-              </button>
-            )}
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              className="btn-trigger btn-trigger--critical text-xs px-3.5 py-2 font-bold"
-              onClick={() => handleTriggerSpike(patientId)}
-            >
-              🚨 Acute AFib Spike (145 bpm · 89% Conf)
-            </button>
-            <button
-              className="btn-secondary text-xs px-3.5 py-2 font-bold hover:bg-amber-100 hover:border-amber-300"
-              onClick={handleTriggerBradycardia}
-            >
-              ⚠️ Severe Bradycardia (42 bpm)
-            </button>
-            <button
-              className="btn-secondary text-xs px-3.5 py-2 font-bold hover:bg-sky-100 hover:border-sky-300"
-              onClick={handleTriggerHypoxia}
-            >
-              🫁 Critical Hypoxia (SpO₂ 86%)
-            </button>
-            <button
-              className="btn-secondary text-xs px-3.5 py-2 font-bold hover:bg-red-100 hover:border-red-300"
-              onClick={handleTriggerHypertension}
-            >
-              🩸 Hypertensive Crisis (188/124)
-            </button>
-            <button
-              className="btn-secondary text-xs px-3.5 py-2 font-bold hover:bg-rose-100 hover:border-rose-300"
-              onClick={handleTriggerDegradedSQI}
-            >
-              🛡️ Degraded SQI Artifact (SQI 45% · Filter)
-            </button>
-            <button
-              className="btn-trigger btn-trigger--normal text-xs px-3.5 py-2 font-bold"
-              onClick={handleStreamNormal}
-            >
-              ✓ Reset to Normal Sinus
-            </button>
-          </div>
-        </div>
 
         {/* Real-time Anomaly Event History Table */}
         <div className="anomaly-history-section">
@@ -1026,7 +1051,7 @@ export default function WearableMonitoringScreen({
         {/* Milestone 3 Clinical Trigger Card */}
         <div className="m3-card trigger-card">
           <div className="trigger-card__badge">
-            {patientId === "P002" ? "Milestone 3 Core Scenario" : `Patient ${patientId} Clinical Scenario`}
+            {patientId === "P002" ? "Clinical Arrhythmia Scenario" : `Patient ${patientId} Clinical Scenario`}
           </div>
           <h3>{selectedPatientName} Arrhythmia Trigger</h3>
           <p>
@@ -1265,7 +1290,7 @@ export default function WearableMonitoringScreen({
                   <span className="text-xl">📱</span>
                   <div>
                     <h3 className="text-base font-bold text-slate-800">Connect Android Phone as Biosensor</h3>
-                    <p className="text-xs text-slate-500">Milestone 3: Stream live physiological vitals into Kafka [wearable-vitals]</p>
+                    <p className="text-xs text-slate-500">Live Telemetry: Stream physiological vitals into Kafka [wearable-vitals]</p>
                   </div>
                 </div>
                 <button className="btn-close" onClick={() => setShowPhoneModal(false)}>×</button>
