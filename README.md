@@ -8,10 +8,6 @@
 
 MediSphere satisfies 100% of the project submission criteria outlined in the capstone evaluation rubric. Below is the verified compliance matrix with direct section links:
 
-<p align="center">
-  <img src="./docs/images/26_evaluation_submission_checklist.png" alt="MediSphere Evaluation Submission Checklist" width="700"/>
-</p>
-
 | Checklist Item | Submission Status | Direct Link in README | Fulfilling Deliverables |
 | :--- | :---: | :--- | :--- |
 | **Team Details** | ✅ **Fulfilled** | [Section: Team & Author Details](#-team--author-details) | **Murala Revathi** (Lead Developer & Architect) |
