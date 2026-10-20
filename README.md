@@ -42,23 +42,6 @@ The complete final presentation deck submitted for evaluation is located in the 
 | **12** | **Thank You** | Concluding remarks and Q&A. |
 
 ---
-
-## 🎥 15-20 Minute Project Demo Video
-
-- **Unlisted YouTube Video Link**:  
-  👉 **`https://www.youtube.com/watch?v=YOUR_UNLISTED_VIDEO_ID`**  
-  *(Replace `YOUR_UNLISTED_VIDEO_ID` with the YouTube link of your demo recording)*
-
-### Demo Video Agenda & Walkthrough (15–20 Minutes)
-1. **00:00 – 02:30 | Project Overview & Clinical Vision**: Introduction to MediSphere, healthcare data fragmentation, and 4-milestone roadmap.
-2. **02:30 – 05:30 | Milestone 1 (FHIR Ingestion & Pipeline)**: Wearable and laboratory ingestion, local FHIR R4 conversion, Apache Kafka streaming, MongoDB twin state assembly.
-3. **05:30 – 08:30 | Milestone 2 (Federated Learning & SHAP XAI)**: 3-hospital node FedAvg simulation, privacy budget (ε = 1.25), 10-year CVD risk score (24.3%), and biomarker SHAP force attributions.
-4. **08:30 – 12:00 | Milestone 3 (Real-Time Anomaly Engine & Mobile SLA)**: Live 2.5s vitals stream, arrhythmia spike (HR 74 → 145 bpm), 3.2-minute SLA clock countdown, and mobile phone chime claim flow.
-5. **12:00 – 16:00 | Milestone 4 (Care Plan Synthesis & Outcomes)**: AI care plan generation, clinical guideline verification, lifestyle/pharmacotherapy interventions, and post-intervention risk drop (-35% CVD risk reduction).
-6. **16:00 – 20:00 | Patient 360 Cockpit, Architecture & Conclusion**: Interactive 3D organ stress visualization, HIPAA audit logs, verification endpoints, and final Q&A wrap-up.
-
----
-
 ## 🏥 The Problem: Healthcare Data Silos & Alert Fatigue
 
 In contemporary healthcare environments, patient data sits trapped in disconnected FHIR APIs, ambulatory wearables, and hospital EHR systems. Hospitals cannot pool data into central databases due to strict privacy regulations (HIPAA/GDPR).
