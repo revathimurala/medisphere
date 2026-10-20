@@ -10,6 +10,7 @@
     "test-alerts": "node src/scripts/verifyAlertEngine.js",
     "test-anomalies": "node src/scripts/verifyAnomalyDetection.js",
     "test-rules-notifications": "node src/scripts/verifyClinicalRulesAndMobileNotifications.js",
+    "test-careplan": "node src/scripts/verifyMilestone4Careplan.js",
     "seed-atlas": "node src/scripts/seedAtlasDirect.js",
     "import-demo": "node src/scripts/importDemo.js",
     "generate-excel": "node src/scripts/generate_demo_excel.js"

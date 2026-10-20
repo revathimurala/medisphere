@@ -11,6 +11,7 @@
 
 import { CarePlan } from "../models/CarePlan.js";
 import { HealthTwin } from "../models/HealthTwin.js";
+import flService from "./federatedLearning.js";
 import mongoose from "mongoose";
 import crypto from "crypto";
 
@@ -120,7 +121,18 @@ class CareplanService {
         modelConfidence: "95.4%",
         generatedAt: new Date(Date.now() - 48 * 3600 * 1000),
         evidenceCitation: "ACC/AHA 2023 · ADA 2024 · KDIGO Standards",
-        derivationSource: "Continuous PPG Smartwatch Telemetry + Digital Health Twin",
+        derivationSource: "Continuous PPG Smartwatch Telemetry + Digital Health Twin + ML Risk Prediction",
+        riskPredictionDerivedFrom: {
+          patientId: p.patientId,
+          cvdRiskScore: p.cvdRiskBaseline,
+          riskCategory: p.cvdRiskBaseline >= 20 ? "High Risk" : p.cvdRiskBaseline >= 12 ? "Moderate Risk" : "Low Risk",
+          topRiskDrivers: [
+            `Glycemic Index (HbA1c ${p.hba1c}%): +8.2%`,
+            `Resting Hemodynamics (${p.bpSys}/${p.bpDia} mmHg): +6.1%`,
+            `Lipid Profile (LDL ${p.ldl} mg/dL): +4.8%`,
+          ],
+          projectedReduction: `${p.cvdRiskBaseline}% → ${p.cvdRiskProjected}% (-${((p.cvdRiskBaseline - p.cvdRiskProjected) / p.cvdRiskBaseline * 100).toFixed(1)}% Relative Risk)`,
+        },
         aiSummary: `Precision protocol algorithmically tailored to baseline CVD risk (${p.cvdRiskBaseline}%), HbA1c (${p.hba1c}%), and resting blood pressure (${p.bpSys}/${p.bpDia} mmHg).`,
       },
 
@@ -614,12 +626,22 @@ class CareplanService {
       }
     }
 
-    const patientName = options.patientName || twinData?.demographics?.name || (pId === "P002" ? "David Kim" : "Sarah Miller");
-    const baselineCvd = options.cvdRiskBaseline || 24.3;
+    // Fetch patient's AI Risk Prediction from Federated Learning model
+    let prediction = null;
+    try {
+      prediction = flService.getPatientRiskPrediction(pId, twinData);
+    } catch {
+      // fallback
+    }
+
+    const patientName = options.patientName || prediction?.patientName || twinData?.demographics?.name || (pId === "P002" ? "David Kim" : pId === "P003" ? "Elena Rostova" : pId === "P004" ? "Marcus Vance" : pId === "P005" ? "Grace Chen" : "Sarah Miller");
+    const baselineCvd = options.cvdRiskBaseline || prediction?.cvdRiskScore || 24.3;
     const projectedCvd = Number((baselineCvd * 0.65).toFixed(1));
-    const hba1c = twinData?.labResults?.find(l => /hba1c|a1c/i.test(l.code))?.value || 8.4;
-    const bpSys = twinData?.latestVitals?.systolic || 144;
-    const bpDia = twinData?.latestVitals?.diastolic || 92;
+    const hba1c = twinData?.labResults?.find(l => /hba1c|a1c/i.test(l.code))?.value || (pId === "P001" ? 8.4 : pId === "P002" ? 6.8 : pId === "P003" ? 6.2 : pId === "P004" ? 7.6 : 6.7);
+    const bpSys = twinData?.latestVitals?.systolic || (pId === "P001" ? 144 : pId === "P002" ? 152 : pId === "P003" ? 138 : pId === "P004" ? 148 : 132);
+    const bpDia = twinData?.latestVitals?.diastolic || (pId === "P001" ? 92 : pId === "P002" ? 96 : pId === "P003" ? 88 : pId === "P004" ? 94 : 84);
+    const ldl = twinData?.labResults?.find(l => /ldl/i.test(l.code))?.value || (pId === "P001" ? 146 : pId === "P002" ? 162 : pId === "P003" ? 128 : pId === "P004" ? 155 : 118);
+    const rhr = twinData?.latestVitals?.heartRate || (pId === "P001" ? 82 : pId === "P002" ? 94 : pId === "P003" ? 76 : pId === "P004" ? 80 : 72);
 
     const patientProfile = {
       patientId: pId,
@@ -629,13 +651,13 @@ class CareplanService {
       hba1c,
       bpSys,
       bpDia,
-      ldl: 146,
-      rhr: 82,
+      ldl,
+      rhr,
     };
 
     const newPlan = this._buildSyntheticCarePlan(patientProfile);
 
-    // AI Generation Provenance
+    // AI Generation Provenance with explicit Risk Prediction derivation
     newPlan.generatedByAi = true;
     newPlan.aiMetadata = {
       isAiGenerated: true,
@@ -643,8 +665,15 @@ class CareplanService {
       modelConfidence: "96.4%",
       generatedAt: new Date(),
       evidenceCitation: "ACC/AHA 2023 · ADA 2024 · KDIGO Standards",
-      derivationSource: "Continuous PPG Smartwatch Telemetry + Digital Health Twin",
-      aiSummary: `New precision care plan drafted by AI based on updated digital twin telemetry (BP: ${bpSys}/${bpDia} mmHg, HbA1c: ${hba1c}%). Awaiting clinician review and electronic authorization.`,
+      derivationSource: "Continuous PPG Smartwatch Telemetry + Digital Health Twin + ML Risk Prediction",
+      riskPredictionDerivedFrom: {
+        patientId: pId,
+        cvdRiskScore: baselineCvd,
+        riskCategory: prediction?.category || (baselineCvd >= 20 ? "High Risk" : "Moderate Risk"),
+        topRiskDrivers: (prediction?.shapValues || []).slice(0, 3).map(s => `${s.feature} (${s.value}): ${s.display}`),
+        projectedReduction: `${baselineCvd}% → ${projectedCvd}% (-${((baselineCvd - projectedCvd) / baselineCvd * 100).toFixed(1)}% Relative Risk)`,
+      },
+      aiSummary: `New precision care plan drafted by AI directly from patient ML risk prediction (${baselineCvd}% ${prediction?.category || "Risk"}) and digital twin telemetry (BP: ${bpSys}/${bpDia} mmHg, HbA1c: ${hba1c}%). Awaiting clinician review and electronic authorization.`,
     };
 
     // Keep the recently approved care plan snapshot from the previous approved version
