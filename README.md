@@ -42,6 +42,282 @@ The complete final presentation deck submitted for evaluation is located in the 
 | **12** | **Thank You** | Concluding remarks and Q&A. |
 
 ---
+
+## 📖 Clinical & Architectural Narrative: An End-to-End Walkthrough
+
+> *Follow patient **John Doe (P001)** through the complete MediSphere lifecycle: from secure authentication and HL7 FHIR R4 telemetry ingestion to multi-hospital federated model training, explainable AI risk scoring, real-time Kafka anomaly escalation under a strict 3.2-minute SLA, and preventive care plan synthesis.*
+
+---
+
+### 🎬 Act 1: Secure Entry & Role-Based Access Control (RBAC)
+
+Every clinical workflow begins at the perimeter. MediSphere enforces HIPAA-ready Role-Based Access Control (RBAC) separating **Clinicians**, **Patients**, and **System Administrators**. 
+
+The portal also provides a dedicated launcher for **Mobile Biosensor Telemetry Mode**, allowing clinicians to turn mobile devices into simulated ambulatory monitors.
+
+<p align="center">
+  <img src="./docs/images/01_login_auth_screen.png" alt="MediSphere Login and RBAC Portal" width="850"/>
+</p>
+
+* **Persona Selection**: Clinicians authenticate to access high-acuity telemetry, while patients access restricted lifestyle and adherence views.
+* **Security Guardrails**: Session tokens, encrypted credentials, and automated session audit logging ensure regulatory compliance.
+
+---
+
+### 🎬 Act 2: Telemetry Ingestion & Digital Twin Reconstitution (Milestone 1)
+
+Once logged in as an attending physician, the clinician accesses the **Data Pipeline Panel** to synchronize patient streams.
+
+Ambulatory biosensors (continuous heart rate, blood pressure, SpO2) and laboratory diagnostics (lipid panels, HbA1c, metabolic markers) arrive as heterogeneous rows. MediSphere converts each row into standardized **HL7 FHIR R4 Observations**, streams them through **Apache Kafka** (`fhir-observations` topic), and persists them into **MongoDB** to assemble the dynamic **Digital Health Twin**.
+
+<p align="center">
+  <img src="./docs/images/02_data_pipeline_fhir_ingestion.png" alt="Data Ingestion Pipeline and FHIR Conversion" width="850"/>
+</p>
+
+* **Ingestion Metrics**: **53 FHIR Events** ingested across **5 Patients**, **15 Wearable Readings**, **19 Lab Observations**, **8 Conditions**, and **6 Prescriptions**.
+* **Integrity Guard**: Validates that digital twin state completeness exceeds **97.8%** before downstream AI models evaluate clinical risks.
+
+---
+
+### 🎬 Act 3: Clinical Cohort Surveillance & Risk Stratification
+
+With digital twins continuously reconstituted in MongoDB, the clinician opens the **Clinical Patient Directory** for cohort surveillance.
+
+The platform stratifies the entire patient population into risk tiers (High, Moderate, Low Risk) based on real-time twin state analysis, surfacing immediate evidence-based action guidance:
+
+<p align="center">
+  <img src="./docs/images/03_patient_roster_risk_stratification.png" alt="Clinical Patient Directory and Risk Stratification" width="850"/>
+</p>
+
+* **John Doe (P001)**: Flagged as **24.3% High Risk (CVD 10-Yr Risk)** — Clinical Action Guidance: *"Intensify statin. BP target <130/80"* (100% Twin Synced).
+* **Sarah Miller (P002)**: **12.0% Moderate Risk** — Prescribed moderate-intensity statin and routine BP surveillance.
+* **David Kumar (P003)**: **9.4% Borderline Risk** — Recommended dietary optimization and annual lipid panel.
+* **Robert Taylor (P004)** & **Emily Chen (P005)**: **<5% Low Risk** — Maintained on preventive wellness trajectories.
+
+---
+
+### 🎬 Act 4: Dynamic Patient 360 Cockpit & Interactive 3D Organ Twin
+
+Selecting **John Doe (P001)** opens the **Patient 360 Dynamic Digital Twin Model**.
+
+The cockpit provides a unified physiological view integrating live telemetry from Kafka (Heart Rate 79 bpm, Blood Pressure 126/82 mmHg, SpO2 99%) alongside standardized HL7 FHIR R4 laboratory diagnostics (eGFR 65 mL/min, Fasting Blood Glucose 142 mg/dL, HbA1c 7.2%, LDL 120 mg/dL):
+
+<p align="center">
+  <img src="./docs/images/11_digital_twin_patient360_cockpit.png" alt="Digital Health Twin Patient 360 Dynamic Cockpit" width="850"/>
+</p>
+
+At the core of the dashboard is an **Interactive 3D Anatomical Organ Twin**, enabling clinicians to inspect individual organ systems (Cardiovascular, Vascular, Pulmonary, Pancreatic, Renal) with live risk heatmaps and physiological status badges:
+
+<p align="center">
+  <img src="./docs/images/12_digital_twin_3d_organ_model_detail.png" alt="Interactive 3D Anatomical Organ Twin Model" width="850"/>
+</p>
+
+* **Cardiovascular System**: Displays resting heart rate at 79 bpm (optimal baseline), confirming normal sinus rhythm under continuous wearable telemetry.
+* **Organ Cross-Filtering**: Clinicians can toggle organ systems to inspect how microvascular inflammation in the kidneys and pancreas cross-influences cardiac stress.
+
+---
+
+### 🎬 Act 5: Consolidated EHR Clinical Health Documentation
+
+Before initiating predictive AI inference, the platform compiles an official **Consolidated Clinical Health Summary**, formatted for regulatory compliance and electronic export (HL7 FHIR R4 Export):
+
+<p align="center">
+  <img src="./docs/images/13_consolidated_clinical_health_summary.png" alt="Consolidated Clinical Health Summary EHR Documentation" width="850"/>
+</p>
+
+* **Active Clinical Diagnoses**: ICD-10 coded records for Type 2 Diabetes Mellitus and Essential Hypertension with patient HIPAA consent verified.
+* **Current Pharmacotherapy**: Metformin 500 mg and Lisinopril 10 mg oral maintenance protocols.
+* **Synchronized Biometric Telemetry**: Confirmed baseline vitals (HR 79 bpm, BP 126/82 mmHg, SpO2 99%, Temp 36.6 °C) feeding downstream predictive models.
+
+---
+
+### 🎬 Act 6: Multi-Hospital Federated Learning (Milestone 2)
+
+Healthcare institutions cannot centrally pool patient records due to strict HIPAA and GDPR restrictions. MediSphere overcomes this boundary through **Multi-Hospital Federated Learning**.
+
+Predictive models are trained locally on edge nodes at three hospital sites, sharing only encrypted gradient updates with the central coordinator via **Federated Averaging (FedAvg)**:
+
+<p align="center">
+  <img src="./docs/images/07_federated_learning_hub_nodes.png" alt="Federated Learning Hub and Multi-Hospital Node Coordination" width="850"/>
+</p>
+
+* **Coordinated Edge Nodes**:
+  1. **St. Jude Medical Center** (`HOSP-01` · Weight: 40% · Cohort: 18,450 records · Local Loss: 0.041)
+  2. **Metro General Hospital** (`HOSP-02` · Weight: 32% · Cohort: 14,200 records · Local Loss: 0.043)
+  3. **Mayo Regional Clinical Center** (`HOSP-03` · Weight: 28% · Cohort: 12,800 records · Local Loss: 0.042)
+* **Differential Privacy Budget**: Strict Rényi Differential Privacy (**$\varepsilon = 1.25$**) guarantees zero leakage of Protected Health Information (PHI).
+* **Global Convergence**: The global model successfully converges at **Round 47** with a global loss of **0.042**, achieving an overall validation accuracy of **91.4%**.
+
+---
+
+### 🎬 Act 7: Model Versioning & Cryptographic Audit Registry
+
+To meet FDA and HIPAA software validation standards, every federated model checkpoint is stored in an immutable **Model Versioning & Checkpoint Registry**:
+
+<p align="center">
+  <img src="./docs/images/08_model_versioning_registry.png" alt="Model Versioning and Checkpoint Registry" width="850"/>
+</p>
+
+* **Lineage Tracking**:
+  - `CVD-Risk-v3.2` (Round 47): **91.4% Accuracy**, **0.932 AUROC**, Weights Hash `0x8f3c4e92a1...` (Active Production).
+  - `DiabComp-v2.0` (Round 35): **88.7% Accuracy**, **0.912 AUROC**, Weights Hash `0x4b7e192f08...` (Active Production).
+  - `CVD-Risk-v3.1` (Round 40): **89.2% Accuracy**, **0.908 AUROC** (Archived).
+* **Cryptographic Tamper-Proofing**: Guarantees reproducibility and allows clinical safety auditors to verify model weights against FDA compliance logs.
+
+---
+
+### 🎬 Act 8: Cohort-Wide AI Risk Assessment Directory
+
+The clinician navigates to the **AI Risk Prediction Directory** to inspect patient trajectories across the multi-hospital cohort:
+
+<p align="center">
+  <img src="./docs/images/06_ai_risk_cohort_directory.png" alt="AI Risk Prediction Cohort Directory" width="850"/>
+</p>
+
+* **Operational Intelligence**: **342 predictions evaluated today** with **23 high-risk patients flagged** for immediate clinical intervention.
+* **Rapid Diagnostic Assessment**: The clinician selects **John Doe (P001)** to inspect detailed Explainable AI (SHAP) attributions.
+
+---
+
+### 🎬 Act 9: Transparent Clinical Decision Support with Explainable AI (SHAP)
+
+A black-box prediction has limited value in critical healthcare decisions. MediSphere integrates **Explainable AI (XAI)** using the **Lundberg-Lee SHAP Additivity Axiom**, giving clinicians direct visibility into every physiological risk driver:
+
+<p align="center">
+  <img src="./docs/images/04_ai_cvd_risk_shap_attribution.png" alt="AI Risk Prediction Engine with SHAP Feature Attribution" width="850"/>
+</p>
+
+* **Baseline CVD Risk**: **24.3% (High Risk)** under the federated model `CVD-Risk-v3.2`.
+* **Biomarker Risk Drivers Breakdown**:
+  - 🔴 **HbA1c (7.2%)**: **+8.0% risk contribution** — Elevated glycemic variability accelerates vascular atherosclerosis.
+  - 🟠 **Blood Pressure (126/82 mmHg)**: **+6.0% risk contribution** — Stage 1 systolic hypertension drives endothelial wall shear stress.
+  - 🔵 **Age (52 yrs)**: **+5.0% risk contribution** — Chronological baseline arterial stiffness.
+  - 🟠 **Active Smoking Status**: **+2.8% risk contribution**.
+  - 🟡 **LDL Cholesterol (120 mg/dL)**: **+2.4% risk contribution**.
+  - 🟢 **eGFR Filtration (65 mL/min)**: **-1.5% protective factor** — Intact renal clearance mitigates fluid retention.
+
+---
+
+### 🎬 Act 10: Multi-Organ Complication Trajectory Modeling
+
+Because cardiovascular disease is heavily intertwined with metabolic dysfunction, MediSphere triggers a multi-task neural network (`DiabComp-v2.0`, 88.7% accuracy) to forecast 5-year secondary microvascular complications:
+
+<p align="center">
+  <img src="./docs/images/05_ai_diabetes_complications_model.png" alt="TensorFlow Federated Diabetes Complication Risk Model" width="850"/>
+</p>
+
+* **Diabetic Nephropathy**: **18.5% (Moderate-High Risk)** — Driven by eGFR 65 mL/min and UACR 42 mg/g $\to$ Triggers annual microalbuminuria surveillance.
+* **Diabetic Neuropathy**: **21.0% (High Risk)** — Peripheral sensory vibration impairment $\to$ Recommends 10g monofilament and 128-Hz tuning fork assessment.
+* **Diabetic Retinopathy**: **14.2% (Moderate Risk)** — Driven by HbA1c 7.2% over 4-year duration $\to$ Enforces annual dilated fundoscopic examination.
+
+---
+
+### 🎬 Act 11: Continuous Telemetry, Mobile Biosensors & The 3.2-Minute Alert SLA Clock (Milestone 3)
+
+#### 11A. Hardware Telemetry & Real-Time Wearable Pairing
+While John Doe is ambulating in post-procedure recovery, his wearable device establishes a direct telemetry bridge with MediSphere. 
+
+The platform supports commercial grade ambulatory hardware (such as **Apple Watch Series 9** and **Samsung Galaxy Watch**) communicating over Bluetooth LE 5.3 and GATT Health profiles, streaming continuous physiological vitals every 2.5 seconds:
+
+<p align="center">
+  <img src="./docs/images/16_wearable_telemetry_hardware_pairing.png" alt="Hardware Telemetry and Wearable Device Pairing" width="850"/>
+</p>
+
+* **Telemetry Health Check**: Confirms active hardware status (**DEV-AW-01**, 84% battery, 98% Signal Quality Index - SQI).
+* **Live Vital Stream**: Heart Rate 74 bpm (Normal Sinus Rhythm), Blood Pressure 122/80 mmHg, SpO2 98%, Body Temperature 36.6 °C.
+
+#### 11B. 5-Stage Ingestion Pipeline & Sliding Window Anomaly Detection
+Every telemetry packet travels through a structured 5-stage ingestion pipeline before reaching the clinician's cockpit:
+1. `WEARABLE_DEVICE` $\to$ 2. `PHYSIOLOGICAL_RANGE_VALIDATION` (PASSED) $\to$ 3. `FHIR_R4_OBSERVATION_MAPPING` $\to$ 4. `KAFKA_TOPIC (wearable-vitals)` $\to$ 5. `DIGITAL_HEALTH_TWIN_SYNC`.
+
+<p align="center">
+  <img src="./docs/images/17_kafka_sliding_window_anomaly_classifier.png" alt="Kafka Streams Telemetry Engine and Sliding Window Anomaly Detection" width="850"/>
+</p>
+
+* **Statistical Anomaly Filtering**: The Kafka Streams engine evaluates a **20-sample sliding window**, continuously tracking rolling baseline vitals ($\mu = 71.9\text{ bpm}$, $\sigma = 2.2\text{ bpm}$, current $Z = 1.41$, safely within the $|Z| < 2.5$ normal threshold).
+
+#### 11C. Physiologic Boundary Range Validation & Stress Testing
+To ensure the pipeline rejects artifacts or invalid biometric noise, MediSphere includes an interactive clinical testing module:
+
+<p align="center">
+  <img src="./docs/images/18_arrhythmia_trigger_range_validator.png" alt="Interactive Arrhythmia Trigger and Boundary Range Validation Tester" width="850"/>
+</p>
+
+* **Range Validation Guard**: Automatically intercepts and discards extreme non-physiological boundary violations (e.g., sensor dislodgement producing $HR > 350\text{ bpm}$ or $SpO_2 < 20\%$).
+* **Clinical Event Simulation**: Allows on-demand triggering of verified cardiac events (such as sudden tachyarrhythmia surges) to validate clinician escalation response times.
+
+#### 11D. MediSphere Mobile Biosensor Telemetry Mode
+For outpatient surveillance and tele-health monitoring where dedicated smartwatches are unavailable, MediSphere features a **Mobile Biosensor Telemetry Mode**:
+
+<p align="center">
+  <img src="./docs/images/19_mobile_biosensor_telemetry_mode.png" alt="MediSphere Mobile Biosensor Telemetry Mode" width="450"/>
+</p>
+
+* **Optical PPG Sensing**: Utilizes smartphone camera flash optical absorption to compute real capillary pulse surges and heart rate variability (HRV).
+* **Direct Kafka Streaming**: The mobile application publishes live telemetry directly into the `wearable-vitals` Kafka broker, updating patient Sarah Miller's (`P002`) clinical dashboard in real time.
+
+#### 11E. The Emergency Escalation: Active Critical Alert & 3.2-Minute SLA Clock
+Suddenly, John Doe experiences an acute cardiac event: his heart rate surges violently from **74 bpm to 145 bpm**. 
+
+The Kafka anomaly engine detects an extreme statistical divergence ($Z = 33.14\sigma$, RMSSD $2.1\text{ ms}$, 89% anomaly confidence), instantly dispatching a **CRITICAL PRIORITY ALARM**:
+
+<p align="center">
+  <img src="./docs/images/20_active_critical_alert_3_2min_sla_clock.png" alt="Active Critical Alert with 3.2-Minute SLA Clock Countdown" width="850"/>
+</p>
+
+* **Active 3.2-Minute SLA Countdown Clock**: An amber-bordered countdown timer displays **03:06 remaining**, enforcing strict time-to-notify standards.
+* **Evidence-Based Clinical Decision Support (CDS)**: Automatically proposes an acute intervention order set conforming to AHA/ACC/HRS Atrial Fibrillation Guidelines:
+  - 12-Lead ECG STAT (`LOINC: 11524-6`)
+  - Serum Electrolytes ($K^+$, $Mg^{++}$, $Ca^{++}$) STAT
+  - Immediate CHA2DS2-VASc stroke assessment and anticoagulation protocol
+  - IV Rate Control preparation (Diltiazem $0.25\text{ mg/kg}$ or Metoprolol $5\text{ mg IV}$)
+* **Multi-Channel Dispatch**: Pager chime, in-app critical header banner, and EHR STAT orders sent simultaneously to attending electrophysiologist **Dr. Evelyn Reed, MD**.
+
+#### 11F. Incident Resolution & Immutable HIPAA SLA Audit Trail
+Dr. Reed acknowledges and claims the alert on mobile within **52 seconds Mean Time to Notify (MTTN)** — well ahead of the 3.2-minute SLA deadline:
+
+<p align="center">
+  <img src="./docs/images/09_clinical_alert_sla_engine.png" alt="Clinical Alert Center and SLA Escalation Engine" width="850"/>
+</p>
+
+* **HIPAA Audit Trail**: Complete incident resolution summary (*"Patient was walking briskly to physical therapy; vitals stabilized"*) is permanently recorded under Incident ID `ALT-P001-140200`.
+
+---
+
+### 🎬 Act 12: Care Plan Synthesis & Measurable Clinical Impact (Milestone 4)
+
+Having stabilized the patient and identified primary risk drivers via SHAP, MediSphere triggers the **AI Care Plan Generator** (Milestone 4) to formulate personalized, evidence-based interventions:
+
+<p align="center">
+  <img src="./docs/images/14_milestone4_careplan_overview.png" alt="Milestone 4 Care Plan and Intervention Overview" width="850"/>
+</p>
+
+* **Clinical Guideline Engine**: Validates the proposed care regimen against ACC/AHA and ADA guidelines (**4/4 Passed, 0 Contraindications**).
+* **Adherence Tracking**: Evaluates patient engagement with an **83% overall adherence score** and an active 14-day compliance streak.
+* **Outcome Measurement**: Predicts a **-35.0% relative CVD risk reduction** (projected to drop John's risk from 24.3% down to 15.8%) and a **-23.4% reduction in hospitalizations**.
+
+Attending physician **Dr. Evelyn Reed, MD** reviews the AI recommendations and issues legal electronic authorization (`NPI-1948201942`), activating formal clinical orders with a cryptographic SHA-256 attestation seal:
+
+<p align="center">
+  <img src="./docs/images/15_careplan_prescriptions_clinical_orders.png" alt="Approved Care Plan and Active Clinical Orders" width="850"/>
+</p>
+
+* **Authorized Prescriptions & Dosages**:
+  - **Metformin HCl Extended-Release (1000 mg)**: Twice daily (BID) with meals for glycemic stabilization.
+  - **Amlodipine Besylate (5 mg)**: Once daily (QD) morning dose for systemic vascular resistance reduction.
+  - **Atorvastatin Calcium (40 mg)**: High-intensity statin taken at bedtime (QHS) for plaque stabilization.
+  - **Lisinopril (10 mg)**: Daily morning ACE inhibitor for cardiorenal protection.
+* **Approved Physiological Targets**:
+  - HbA1c $<7.0\%$ glycemic control
+  - Hemodynamic Blood Pressure $<130/80\text{ mmHg}$
+  - Atherosclerotic Lipid Reduction (LDL $70\text{--}100\text{ mg/dL}$)
+  - Cardiorespiratory physical activity ($\ge 7,500\text{ steps/day}$, $150\text{ min/week}$)
+* **Physician Attestation**: Cryptographically sealed (`SHA256:a49942c452...`) and permanently synchronized with the patient's electronic health record.
+
+---
+
+---
+
 ## 🏥 The Problem: Healthcare Data Silos & Alert Fatigue
 
 In contemporary healthcare environments, patient data sits trapped in disconnected FHIR APIs, ambulatory wearables, and hospital EHR systems. Hospitals cannot pool data into central databases due to strict privacy regulations (HIPAA/GDPR).
@@ -184,6 +460,13 @@ In contemporary healthcare environments, patient data sits trapped in disconnect
   - `GET|POST /fhir/R4/Observation` — Observation resource search and ingest
   - `GET  /.well-known/smart-configuration` — SMART-on-FHIR standard discovery
 
+<p align="center">
+  <img src="./docs/images/02_data_pipeline_fhir_ingestion.png" alt="Milestone 1 Data Ingestion Pipeline" width="800"/>
+</p>
+<p align="center">
+  <img src="./docs/images/03_patient_roster_risk_stratification.png" alt="Clinical Patient Directory and Risk Stratification" width="800"/>
+</p>
+
 ### 🔹 Milestone 2: Multi-Hospital Federated Learning & Risk Models
 - **TensorFlow Federated Setup**: Simulates Federated Averaging (FedAvg) across 3 distributed hospital nodes with differential privacy budget **$\varepsilon = 1.25$**.
 - **10-Year CVD Risk Prediction**: Computes 10-year cardiovascular risk scores and risk categories (e.g., Patient John Doe `P001` baseline risk: **24.3% High Risk**).
@@ -191,6 +474,19 @@ In contemporary healthcare environments, patient data sits trapped in disconnect
 - **Explainable AI (SHAP)**: Explains the exact biomarker drivers behind every prediction (e.g., **+8.2** from HbA1c, **+6.1** from Systolic Blood Pressure).
 - **Model Versioning & Registry**: Tracks model training rounds, global weights, and accuracy metrics (e.g., **Round 47** in demo).
 - *Transparent Scope Note*: Federated training is simulated across 3 hospital nodes; cohorts, accuracy progression, and per-patient risk/SHAP values are seeded demo values.
+
+<p align="center">
+  <img src="./docs/images/07_federated_learning_hub_nodes.png" alt="Federated Learning Multi-Hospital Coordination" width="800"/>
+</p>
+<p align="center">
+  <img src="./docs/images/08_model_versioning_registry.png" alt="Model Versioning and Checkpoint Registry" width="800"/>
+</p>
+<p align="center">
+  <img src="./docs/images/04_ai_cvd_risk_shap_attribution.png" alt="AI Predictive Risk Engine with SHAP Attribution" width="800"/>
+</p>
+<p align="center">
+  <img src="./docs/images/05_ai_diabetes_complications_model.png" alt="Diabetes Complications Risk Model" width="800"/>
+</p>
 
 ### 🔹 Milestone 3: Continuous Monitoring & Real-Time Alert Engine
 - **Wearable Device Integration**: Simulated smart wearables stream live vitals every **2.5 seconds**.
@@ -200,6 +496,19 @@ In contemporary healthcare environments, patient data sits trapped in disconnect
 - **Mobile Phone Notifications**: Interactive mobile pager interface with audible chime; clinician claiming immediately stops the SLA clock and records time-to-notify.
 - **Demo Scenario**: Heart rate spikes rapidly from **74 → 145 bpm**, prompting an urgent alert claimed by the on-call physician.
 
+<p align="center">
+  <img src="./docs/images/16_wearable_telemetry_hardware_pairing.png" alt="Milestone 3 Wearable Device Telemetry Pairing" width="800"/>
+</p>
+<p align="center">
+  <img src="./docs/images/17_kafka_sliding_window_anomaly_classifier.png" alt="Kafka Streams Anomaly Detection and Sliding Window" width="800"/>
+</p>
+<p align="center">
+  <img src="./docs/images/20_active_critical_alert_3_2min_sla_clock.png" alt="Active Critical Alert 3.2-Min SLA Clock" width="800"/>
+</p>
+<p align="center">
+  <img src="./docs/images/09_clinical_alert_sla_engine.png" alt="Milestone 3 Clinical Alert Center and SLA Audit Trail" width="800"/>
+</p>
+
 ### 🔹 Milestone 4: Care Plan Synthesis & Clinical Outcomes
 - **AI Care Plan Generator**: Synthesizes personalized pharmacotherapy, lifestyle, and dietary interventions directly from the patient's digital twin risk factors.
 - **Clinical Guideline Engine**: Validates all generated care plan recommendations against established medical guidelines (AHA/ACC).
@@ -207,6 +516,13 @@ In contemporary healthcare environments, patient data sits trapped in disconnect
 - **Demonstrated Outcome Measurement**: Compares predicted cardiovascular risk before and after care plan adoption, validating a **-35.0% relative risk reduction** (dropping baseline risk from 24.3% down to 15.8%).
 - **Provider Collaboration**: Allows multi-disciplinary clinical teams to review, annotate, and approve active care plans.
 - *Transparent Scope Note*: The care plan generator, guideline verification rules, and adherence tracking screens are fully implemented; the 23% hospitalization reduction is a demonstrative metric.
+
+<p align="center">
+  <img src="./docs/images/14_milestone4_careplan_overview.png" alt="Milestone 4 AI Care Plan Generator" width="800"/>
+</p>
+<p align="center">
+  <img src="./docs/images/15_careplan_prescriptions_clinical_orders.png" alt="Approved Clinical Orders and Prescriptions" width="800"/>
+</p>
 
 ---
 
